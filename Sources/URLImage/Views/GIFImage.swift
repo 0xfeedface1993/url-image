@@ -33,7 +33,7 @@ public struct GIFWrapperImage: View {
     }
 }
 
-
+@available(macOS 11.0, iOS 13.0, *)
 struct GIFImage: PlatformViewRepresentable {
     private var source: CGImageSource
     @State var image: PlatformImage?
@@ -174,7 +174,6 @@ fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
         // store in ms and truncate to compute GCD more easily
         Int(delayForImage(at: $0, source: source) * 1000)
     }
-    let duration = delays.reduce(0, +)
     let gcd = delays.reduce(0, gcd)
     
     CGImageDestinationSetProperties(destination, gifProperties)
@@ -201,6 +200,10 @@ fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
     }
     
     return NSImage(data: Data(referencing: data))
+}
+
+extension NSImage: @unchecked Sendable {
+    
 }
 #endif
 
