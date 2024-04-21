@@ -8,33 +8,19 @@
 import SwiftUI
 import Model
 
-//@available(iOS 14.0, *)
-//public struct GIFWrapperImage<Content: View>: View {
-//    private let decoder: CGImageProxy
-//    @State private var image: UIImage?
-//    
-//    var content: (Image) -> Content
-//    
-//    init(decoder: CGImageProxy, @ViewBuilder content: @escaping (Image) -> Content) {
-//        self.decoder = decoder
-//        self.content = content
-//    }
-//    
-//    public var body: some View {
-////        GIFImage(source: decoder.decoder.imageSource)
-//        if let image = image {
-//            content(Image(uiImage: image))
-//        }   else    {
-//            Color.clear.onAppear(perform: {
-//                Task {
-//                    image = await UIImage.gif(decoder.decoder.imageSource)
-//                }
-//            })
-//        }
-//    }
-//}
+#if os(iOS) || os(watchOS)
+typealias PlatformView = UIView
+typealias PlatformViewRepresentable = UIViewRepresentable
+typealias PlatformImage = UIImage
+typealias PlatformImageView = UIImageView
+#elseif os(macOS)
+typealias PlatformView = NSView
+typealias PlatformImage = NSImage
+typealias PlatformImageView = NSImageView
+typealias PlatformViewRepresentable = NSViewRepresentable
+#endif
 
-@available(iOS 14.0, *)
+@available(macOS 11.0, iOS 14.0, *)
 public struct GIFWrapperImage: View {
     private let decoder: CGImageProxy
     
@@ -47,9 +33,10 @@ public struct GIFWrapperImage: View {
     }
 }
 
-public struct GIFImage: UIViewRepresentable {
+
+struct GIFImage: PlatformViewRepresentable {
     private var source: CGImageSource
-    @State var image: UIImage?
+    @State var image: PlatformImage?
     
     public func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -59,6 +46,7 @@ public struct GIFImage: UIViewRepresentable {
         self.source = source
     }
     
+#if os(iOS) || os(watchOS)
     public func makeUIView(context: Context) -> UIGIFImage {
         UIGIFImage(source: image)
     }
@@ -66,6 +54,16 @@ public struct GIFImage: UIViewRepresentable {
     public func updateUIView(_ uiView: UIGIFImage, context: Context) {
         uiView.imageView.image = image
     }
+#elseif os(macOS)
+    func makeNSView(context: Context) -> UIGIFImage {
+        UIGIFImage(source: image)
+    }
+    
+    func updateNSView(_ nsView: NSViewType, context: Context) {
+        nsView.imageView.image = image
+        nsView.imageView.animates = true
+    }
+#endif
     
     public final class Coordinator {
         var imageView: GIFImage
@@ -79,17 +77,19 @@ public struct GIFImage: UIViewRepresentable {
         }
         
         func load() async {
-            let data = await UIImage.gif(imageView.source)
+#if os(iOS) || os(watchOS)
+            let data = await gif(imageView.source)
             Task { @MainActor in
                 imageView.image = data
             }
+#endif
         }
     }
 }
 
-public class UIGIFImage: UIView {
-    let imageView = UIImageView()
-    private var source: UIImage?
+class UIGIFImage: PlatformView {
+    let imageView = PlatformImageView()
+    private var source: PlatformImage?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -99,57 +99,70 @@ public class UIGIFImage: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
-    convenience init(source: UIImage?) {
+    convenience init(source: PlatformImage?) {
         self.init()
         self.source = source
         initView()
     }
-    
+
+#if os(iOS) || os(watchOS)
     public override func layoutSubviews() {
         super.layoutSubviews()
         imageView.frame = bounds
-        self.addSubview(imageView)
+        addSubview(imageView)
     }
+#elseif os(macOS)
+    override func layout() {
+        super.layout()
+        imageView.frame = bounds
+        addSubview(imageView)
+    }
+#endif
     
     private func initView() {
+#if os(iOS) || os(watchOS)
         imageView.contentMode = .scaleAspectFit
-    }
-}
-
-public extension UIImage {
-    static func gifImage(_ source: CGImageSource) -> UIImage? {
-        let count = CGImageSourceGetCount(source)
-        let delays = (0..<count).map {
-            // store in ms and truncate to compute GCD more easily
-            Int(delayForImage(at: $0, source: source) * 1000)
-        }
-        let duration = delays.reduce(0, +)
-        let gcd = delays.reduce(0, gcd)
-        
-        var frames = [UIImage]()
-        for i in 0..<count {
-            if let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) {
-                let frame = UIImage(cgImage: cgImage)
-                let frameCount = delays[i] / gcd
-                
-                for _ in 0..<frameCount {
-                    frames.append(frame)
-                }
-            } else {
-                return nil
-            }
-        }
-        
-        return UIImage.animatedImage(with: frames,
-                                     duration: Double(duration) / 1000.0)
+#elseif os(macOS)
+        imageView.image = source
+        imageView.animates = true
+#endif
     }
     
-    static func gif(_ source: CGImageSource) async -> UIImage? {
-        gifImage(source)
-    }
 }
 
-private func gcd(_ a: Int, _ b: Int) -> Int {
+#if os(iOS) || os(watchOS)
+fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
+    let count = CGImageSourceGetCount(source)
+    let delays = (0..<count).map {
+        // store in ms and truncate to compute GCD more easily
+        Int(delayForImage(at: $0, source: source) * 1000)
+    }
+    let duration = delays.reduce(0, +)
+    let gcd = delays.reduce(0, gcd)
+    
+    var frames = [PlatformImage]()
+    for i in 0..<count {
+        if let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) {
+            let frame = PlatformImage(cgImage: cgImage)
+            let frameCount = delays[i] / gcd
+            
+            for _ in 0..<frameCount {
+                frames.append(frame)
+            }
+        } else {
+            return nil
+        }
+    }
+    
+    return PlatformImage.animatedImage(with: frames,
+                                 duration: Double(duration) / 1000.0)
+}
+
+fileprivate func gif(_ source: CGImageSource) async -> PlatformImage? {
+    gifImage(source)
+}
+
+fileprivate func gcd(_ a: Int, _ b: Int) -> Int {
     let absB = abs(b)
     let r = abs(a) % absB
     if r != 0 {
@@ -159,7 +172,7 @@ private func gcd(_ a: Int, _ b: Int) -> Int {
     }
 }
 
-private func delayForImage(at index: Int, source: CGImageSource) -> Double {
+fileprivate func delayForImage(at index: Int, source: CGImageSource) -> Double {
     let defaultDelay = 1.0
     
     let cfProperties = CGImageSourceCopyPropertiesAtIndex(source, index, nil)
@@ -188,6 +201,7 @@ private func delayForImage(at index: Int, source: CGImageSource) -> Double {
         return defaultDelay
     }
 }
+#endif
 
 //@available(iOS 13.0, *)
 //struct GIFImageTest: View {
