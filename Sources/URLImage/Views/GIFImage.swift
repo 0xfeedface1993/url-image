@@ -72,6 +72,10 @@ public struct GIFImage: UIViewRepresentable {
         
         init(_ imageView: GIFImage) {
             self.imageView = imageView
+            
+            Task {
+                await load()
+            }
         }
         
         func load() async {
