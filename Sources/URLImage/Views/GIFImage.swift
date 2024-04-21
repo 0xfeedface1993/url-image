@@ -37,7 +37,6 @@ import Model
 @available(iOS 14.0, *)
 public struct GIFWrapperImage: View {
     private let decoder: CGImageProxy
-    @State private var image: UIImage?
     
     init(decoder: CGImageProxy) {
         self.decoder = decoder
@@ -50,25 +49,43 @@ public struct GIFWrapperImage: View {
 
 public struct GIFImage: UIViewRepresentable {
     private var source: CGImageSource
+    @State var image: UIImage?
+    
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
     
     init(source: CGImageSource) {
         self.source = source
     }
     
     public func makeUIView(context: Context) -> UIGIFImage {
-        UIGIFImage(source: source)
+        UIGIFImage(source: image)
     }
     
     public func updateUIView(_ uiView: UIGIFImage, context: Context) {
-        Task {
-            await uiView.updateGIF(source: source)
+        uiView.imageView.image = image
+    }
+    
+    public final class Coordinator {
+        var imageView: GIFImage
+        
+        init(_ imageView: GIFImage) {
+            self.imageView = imageView
+        }
+        
+        func load() async {
+            let data = await UIImage.gif(imageView.source)
+            Task { @MainActor in
+                imageView.image = data
+            }
         }
     }
 }
 
 public class UIGIFImage: UIView {
-    private let imageView = UIImageView()
-    private var source: CGImageSource?
+    let imageView = UIImageView()
+    private var source: UIImage?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -78,7 +95,7 @@ public class UIGIFImage: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
-    convenience init(source: CGImageSource) {
+    convenience init(source: UIImage?) {
         self.init()
         self.source = source
         initView()
@@ -88,16 +105,6 @@ public class UIGIFImage: UIView {
         super.layoutSubviews()
         imageView.frame = bounds
         self.addSubview(imageView)
-    }
-    
-    func updateGIF(source: CGImageSource) async {
-        let image = UIImage.gifImage(source)
-        await updateWithImage(image)
-    }
-    
-    @MainActor
-    private func updateWithImage(_ image: UIImage?) async {
-        imageView.image = image
     }
     
     private func initView() {
