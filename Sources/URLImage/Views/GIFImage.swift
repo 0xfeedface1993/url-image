@@ -8,29 +8,43 @@
 import SwiftUI
 import Model
 
+//@available(iOS 14.0, *)
+//public struct GIFWrapperImage<Content: View>: View {
+//    private let decoder: CGImageProxy
+//    @State private var image: UIImage?
+//    
+//    var content: (Image) -> Content
+//    
+//    init(decoder: CGImageProxy, @ViewBuilder content: @escaping (Image) -> Content) {
+//        self.decoder = decoder
+//        self.content = content
+//    }
+//    
+//    public var body: some View {
+////        GIFImage(source: decoder.decoder.imageSource)
+//        if let image = image {
+//            content(Image(uiImage: image))
+//        }   else    {
+//            Color.clear.onAppear(perform: {
+//                Task {
+//                    image = await UIImage.gif(decoder.decoder.imageSource)
+//                }
+//            })
+//        }
+//    }
+//}
+
 @available(iOS 14.0, *)
-public struct GIFWrapperImage<Content: View>: View {
+public struct GIFWrapperImage: View {
     private let decoder: CGImageProxy
     @State private var image: UIImage?
     
-    var content: (Image) -> Content
-    
-    init(decoder: CGImageProxy, @ViewBuilder content: @escaping (Image) -> Content) {
+    init(decoder: CGImageProxy) {
         self.decoder = decoder
-        self.content = content
     }
     
     public var body: some View {
-//        GIFImage(source: decoder.decoder.imageSource)
-        if let image = image {
-            content(Image(uiImage: image))
-        }   else    {
-            Color.clear.onAppear(perform: {
-                Task {
-                    image = await UIImage.gif(decoder.decoder.imageSource)
-                }
-            })
-        }
+        GIFImage(source: decoder.decoder.imageSource)
     }
 }
 
