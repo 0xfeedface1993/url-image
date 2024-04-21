@@ -174,20 +174,17 @@ fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
         // store in ms and truncate to compute GCD more easily
         Int(delayForImage(at: $0, source: source) * 1000)
     }
-    let gcd = delays.reduce(0, gcd)
+//    let gcd = delays.reduce(0, gcd)
     
     CGImageDestinationSetProperties(destination, gifProperties)
     for i in 0..<count {
         if let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) {
             let frameProperties = [
                 kCGImagePropertyGIFDictionary as String: [
-                    kCGImagePropertyGIFDelayTime as String: delays[i]
+                    kCGImagePropertyGIFDelayTime as String: Double(delays[i]) / 1000.0
                 ]
             ] as CFDictionary
-            let frameCount = delays[i] / gcd
-            for _ in 0..<frameCount {
-                CGImageDestinationAddImage(destination, cgImage, frameProperties)
-            }
+            CGImageDestinationAddImage(destination, cgImage, frameProperties)
         }
     }
     
@@ -223,33 +220,30 @@ fileprivate func gcd(_ a: Int, _ b: Int) -> Int {
 }
 
 fileprivate func delayForImage(at index: Int, source: CGImageSource) -> Double {
-    let defaultDelay = 1.0
+    var delay = 0.1
     
+    // Get dictionaries
     let cfProperties = CGImageSourceCopyPropertiesAtIndex(source, index, nil)
     let gifPropertiesPointer = UnsafeMutablePointer<UnsafeRawPointer?>.allocate(capacity: 0)
-    defer {
-        gifPropertiesPointer.deallocate()
-    }
-    let unsafePointer = Unmanaged.passUnretained(kCGImagePropertyGIFDictionary).toOpaque()
-    if CFDictionaryGetValueIfPresent(cfProperties, unsafePointer, gifPropertiesPointer) == false {
-        return defaultDelay
-    }
-    let gifProperties = unsafeBitCast(gifPropertiesPointer.pointee, to: CFDictionary.self)
-    var delayWrapper = unsafeBitCast(CFDictionaryGetValue(gifProperties,
-                                                         Unmanaged.passUnretained(kCGImagePropertyGIFUnclampedDelayTime).toOpaque()),
-                                    to: AnyObject.self)
-    if delayWrapper.doubleValue == 0 {
-        delayWrapper = unsafeBitCast(CFDictionaryGetValue(gifProperties,
-                                                         Unmanaged.passUnretained(kCGImagePropertyGIFDelayTime).toOpaque()),
-                                    to: AnyObject.self)
+    if CFDictionaryGetValueIfPresent(cfProperties, Unmanaged.passUnretained(kCGImagePropertyGIFDictionary).toOpaque(), gifPropertiesPointer) == false {
+        return delay
     }
     
-    if let delay = delayWrapper as? Double,
-       delay > 0 {
-        return delay
-    } else {
-        return defaultDelay
+    let gifProperties:CFDictionary = unsafeBitCast(gifPropertiesPointer.pointee, to: CFDictionary.self)
+    
+    // Get delay time
+    var delayObject: AnyObject = unsafeBitCast(CFDictionaryGetValue(gifProperties, Unmanaged.passUnretained(kCGImagePropertyGIFUnclampedDelayTime).toOpaque()), to: AnyObject.self)
+    if delayObject.doubleValue == 0 {
+        delayObject = unsafeBitCast(CFDictionaryGetValue(gifProperties, Unmanaged.passUnretained(kCGImagePropertyGIFDelayTime).toOpaque()), to: AnyObject.self)
     }
+    
+    delay = delayObject as! Double
+    
+    if delay < 0.1 {
+        delay = 0.1 // Make sure they're not too fast
+    }
+    
+    return delay
 }
 
 //@available(iOS 13.0, *)
