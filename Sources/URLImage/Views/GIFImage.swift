@@ -22,27 +22,27 @@ typealias PlatformViewRepresentable = NSViewRepresentable
 
 @available(macOS 11.0, iOS 14.0, *)
 public struct GIFWrapperImage: View {
-    private let decoder: CGImageProxy
+    private let decoder: TransientImage
     
-    init(decoder: CGImageProxy) {
+    init(decoder: TransientImage) {
         self.decoder = decoder
     }
     
     public var body: some View {
-        GIFImage(source: decoder.decoder.imageSource)
+        GIFImage(source: decoder)
     }
 }
 
-@available(macOS 11.0, iOS 13.0, *)
+@available(macOS 11.0, iOS 14.0, *)
 struct GIFImage: PlatformViewRepresentable {
-    private var source: CGImageSource
+    private var source: TransientImage
     @State var image: PlatformImage?
     
     public func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
     
-    init(source: CGImageSource) {
+    init(source: TransientImage) {
         self.source = source
     }
     
@@ -129,7 +129,9 @@ class UIGIFImage: PlatformView {
 }
 
 #if os(iOS) || os(watchOS)
-fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
+@available(iOS 14.0, *)
+fileprivate func gifImage(_ image: TransientImage) -> PlatformImage? {
+    let source = image.proxy.decoder.imageSource
     let count = CGImageSourceGetCount(source)
     let delays = (0..<count).map {
         // store in ms and truncate to compute GCD more easily
@@ -157,46 +159,13 @@ fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
 }
 #elseif os(macOS)
 @available(macOS 11.0, *)
-fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
-    let gifProperties = [kCGImagePropertyGIFDictionary as String: [kCGImagePropertyGIFLoopCount as String: 0]] as CFDictionary
-    let uuid = UUID().uuidString
-    let path = NSTemporaryDirectory() + "\(uuid).gif"
-    let count = CGImageSourceGetCount(source)
-    guard let destination = CGImageDestinationCreateWithURL(
-        NSURL(fileURLWithPath: path) as CFURL,
-        kUTTypeGIF,
-        count,
-        nil
-    ) else {
-        return nil
+fileprivate func gifImage(_ source: TransientImage) -> PlatformImage? {
+    switch source.presentation {
+    case .data(let data):
+        return PlatformImage(data: data)
+    case .file(let path):
+        return PlatformImage(contentsOfFile: path)
     }
-    let delays = (0..<count).map {
-        // store in ms and truncate to compute GCD more easily
-        Int(delayForImage(at: $0, source: source) * 1000)
-    }
-//    let gcd = delays.reduce(0, gcd)
-    
-    CGImageDestinationSetProperties(destination, gifProperties)
-    for i in 0..<count {
-        if let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) {
-            let frameProperties = [
-                kCGImagePropertyGIFDictionary as String: [
-                    kCGImagePropertyGIFDelayTime as String: Double(delays[i]) / 1000.0
-                ]
-            ] as CFDictionary
-            CGImageDestinationAddImage(destination, cgImage, frameProperties)
-        }
-    }
-    
-    guard CGImageDestinationFinalize(destination) else {
-        return nil
-    }
-    
-    guard let data = NSData(contentsOfFile: path) else {
-        return nil
-    }
-    
-    return NSImage(data: Data(referencing: data))
 }
 
 extension NSImage: @unchecked Sendable {
@@ -204,8 +173,8 @@ extension NSImage: @unchecked Sendable {
 }
 #endif
 
-@available(macOS 11.0, iOS 13.0, *)
-fileprivate func gif(_ source: CGImageSource) async -> PlatformImage? {
+@available(macOS 11.0, iOS 14.0, *)
+fileprivate func gif(_ source: TransientImage) async -> PlatformImage? {
     gifImage(source)
 }
 

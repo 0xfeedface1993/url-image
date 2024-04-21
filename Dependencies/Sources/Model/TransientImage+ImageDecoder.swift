@@ -9,6 +9,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import ImageDecoder
+import DownloadManager
 
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
@@ -18,7 +19,7 @@ public extension TransientImage {
         let decoder = ImageDecoder()
         decoder.setData(data, allDataReceived: true)
 
-        self.init(decoder: decoder, maxPixelSize: maxPixelSize)
+        self.init(decoder: decoder, presentation: .data(data), maxPixelSize: maxPixelSize)
     }
 
     init?(location: URL, maxPixelSize: CGSize?) {
@@ -26,10 +27,10 @@ public extension TransientImage {
             return nil
         }
 
-        self.init(decoder: decoder, maxPixelSize: maxPixelSize)
+        self.init(decoder: decoder, presentation: .file(location.path), maxPixelSize: maxPixelSize)
     }
 
-    init?(decoder: ImageDecoder, maxPixelSize: CGSize?) {
+    init?(decoder: ImageDecoder, presentation: DownloadResult, maxPixelSize: CGSize?) {
         guard let uti = decoder.uti else {
             // Not an image
             return nil
@@ -45,6 +46,6 @@ public extension TransientImage {
         let info = ImageInfo(proxy: proxy, size: size)
         let cgOrientation: CGImagePropertyOrientation = decoder.frameOrientation(at: 0) ?? .up
 
-        self.init(proxy: proxy, info: info, uti: uti, cgOrientation: cgOrientation)
+        self.init(proxy: proxy, info: info, uti: uti, presentation: presentation, cgOrientation: cgOrientation)
     }
 }

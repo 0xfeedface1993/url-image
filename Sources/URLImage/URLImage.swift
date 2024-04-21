@@ -80,7 +80,7 @@ public extension URLImage {
                   failure: failure,
                   content: { (transientImage: TransientImage) -> Content in
             gifContent(
-                GIFWrapperImage(decoder: transientImage.proxy)
+                GIFWrapperImage(decoder: transientImage)
             )
         })
     }

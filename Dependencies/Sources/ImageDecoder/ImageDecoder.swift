@@ -86,7 +86,7 @@ public final class ImageDecoder {
         guard let dataProvider = CGDataProvider(url: url as CFURL) else {
             return nil
         }
-
+        
         self.init()
         setDataProvider(dataProvider, allDataReceived: true)
     }

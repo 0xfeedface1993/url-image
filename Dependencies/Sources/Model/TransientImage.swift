@@ -8,6 +8,7 @@
 import Foundation
 import ImageIO
 import ImageDecoder
+import DownloadManager
 
 
 /// Temporary representation used after decoding an image from data or file on disk and before creating an image object for display.
@@ -27,16 +28,17 @@ public struct TransientImage {
 
     public let cgOrientation: CGImagePropertyOrientation
 
-    init(proxy: CGImageProxy, info: ImageInfo, uti: String, cgOrientation: CGImagePropertyOrientation) {
+    init(proxy: CGImageProxy, info: ImageInfo, uti: String, presentation: DownloadResult, cgOrientation: CGImagePropertyOrientation) {
         self.proxy = proxy
         self.info = info
         self.uti = uti
         self.cgOrientation = cgOrientation
+        self.presentation = presentation
     }
-
+    
+    public let presentation: DownloadResult
     public let proxy: CGImageProxy
 }
-
 
 /// Proxy used to decode image lazily
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
