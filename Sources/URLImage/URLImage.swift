@@ -64,6 +64,28 @@ public struct URLImage<Empty, InProgress, Failure, Content> : View where Empty :
     }
 }
 
+@available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
+public extension URLImage {
+    init(_ url: URL,
+         identifier: String? = nil,
+         @ViewBuilder empty: @escaping () -> Empty,
+         @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
+         @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
+         @ViewBuilder content: @escaping (_ image: GIFWrapperImage) -> Content) {
+        
+        self.init(url,
+                  identifier: identifier,
+                  empty: empty,
+                  inProgress: inProgress,
+                  failure: failure,
+                  content: { (transientImage: TransientImage) -> Content in
+            content(
+                GIFWrapperImage(decoder: transientImage.proxy)
+            )
+        })
+    }
+}
+
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public extension URLImage {

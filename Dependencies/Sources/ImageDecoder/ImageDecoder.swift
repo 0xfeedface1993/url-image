@@ -282,7 +282,7 @@ public final class ImageDecoder {
         kCGImageSourceCreateThumbnailFromImageAlways: true
     ]
 
-    private let imageSource: CGImageSource
+    public let imageSource: CGImageSource
 
     private func imageSourceOptions(with subsamplingLevel: SubsamplingLevel = .default) -> CFDictionary {
         var options = ImageDecoder.imageSourceOptions

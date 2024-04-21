@@ -45,6 +45,28 @@ public final class Database {
         context.undoManager = nil
     }
 
+    public func async(_ closure: @escaping (_ context: NSManagedObjectContext) throws -> Void) async {
+        if #available(macOS 12.0, iOS 15.0, *) {
+            do {
+                try await context.perform(schedule: .immediate) { [unowned self] in
+                    try closure(self.context)
+                }
+            } catch {
+                print(error)
+            }
+        } else {
+            // Fallback on earlier versions
+            context.perform { [unowned self] in
+                do {
+                    try closure(self.context)
+                }
+                catch {
+                    print(error)
+                }
+            }
+        }
+    }
+    
     public func async(_ closure: @escaping (_ context: NSManagedObjectContext) throws -> Void) {
         context.perform { [unowned self] in
             do {

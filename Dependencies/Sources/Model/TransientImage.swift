@@ -34,17 +34,17 @@ public struct TransientImage {
         self.cgOrientation = cgOrientation
     }
 
-    private let proxy: CGImageProxy
+    public let proxy: CGImageProxy
 }
 
 
 /// Proxy used to decode image lazily
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-final class CGImageProxy {
+public final class CGImageProxy {
 
-    let decoder: ImageDecoder
+    public let decoder: ImageDecoder
 
-    let maxPixelSize: CGSize?
+    public let maxPixelSize: CGSize?
 
     init(decoder: ImageDecoder, maxPixelSize: CGSize?) {
         self.decoder = decoder
