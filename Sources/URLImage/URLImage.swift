@@ -71,7 +71,7 @@ public extension URLImage {
          @ViewBuilder empty: @escaping () -> Empty,
          @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
          @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
-         @ViewBuilder gifContent: @escaping (_ image: GIFWrapperImage) -> Content) {
+         @ViewBuilder gifContent: @escaping (_ image: Image) -> Content) {
         
         self.init(url,
                   identifier: identifier,
@@ -80,7 +80,7 @@ public extension URLImage {
                   failure: failure,
                   content: { (transientImage: TransientImage) -> Content in
             gifContent(
-                GIFWrapperImage(decoder: transientImage.proxy)
+                Image(uiImage: UIImage.gifImage(transientImage.proxy.decoder.imageSource) ?? UIImage())
             )
         })
     }

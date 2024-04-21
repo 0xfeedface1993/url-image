@@ -9,18 +9,21 @@ import SwiftUI
 import Model
 
 @available(iOS 14.0, *)
-public struct GIFWrapperImage: View {
+public struct GIFWrapperImage<Content: View>: View {
     private let decoder: CGImageProxy
     @State private var image: UIImage?
     
-    init(decoder: CGImageProxy) {
+    var content: (Image) -> Content
+    
+    init(decoder: CGImageProxy, @ViewBuilder content: @escaping (Image) -> Content) {
         self.decoder = decoder
+        self.content = content
     }
     
     public var body: some View {
 //        GIFImage(source: decoder.decoder.imageSource)
         if let image = image {
-            Image(uiImage: image)
+            content(Image(uiImage: image))
         }   else    {
             Color.clear.onAppear(perform: {
                 Task {
