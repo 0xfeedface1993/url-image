@@ -77,12 +77,10 @@ struct GIFImage: PlatformViewRepresentable {
         }
         
         func load() async {
-#if os(iOS) || os(watchOS)
             let data = await gif(imageView.source)
             Task { @MainActor in
                 imageView.image = data
             }
-#endif
         }
     }
 }
@@ -157,7 +155,56 @@ fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
     return PlatformImage.animatedImage(with: frames,
                                  duration: Double(duration) / 1000.0)
 }
+#elseif os(macOS)
+@available(macOS 11.0, *)
+fileprivate func gifImage(_ source: CGImageSource) -> PlatformImage? {
+    let gifProperties = [kCGImagePropertyGIFDictionary as String: [kCGImagePropertyGIFLoopCount as String: 0]] as CFDictionary
+    let uuid = UUID().uuidString
+    let path = NSTemporaryDirectory() + "\(uuid).gif"
+    let count = CGImageSourceGetCount(source)
+    guard let destination = CGImageDestinationCreateWithURL(
+        NSURL(fileURLWithPath: path) as CFURL,
+        kUTTypeGIF,
+        count,
+        nil
+    ) else {
+        return nil
+    }
+    let delays = (0..<count).map {
+        // store in ms and truncate to compute GCD more easily
+        Int(delayForImage(at: $0, source: source) * 1000)
+    }
+    let duration = delays.reduce(0, +)
+    let gcd = delays.reduce(0, gcd)
+    
+    CGImageDestinationSetProperties(destination, gifProperties)
+    for i in 0..<count {
+        if let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) {
+            let frameProperties = [
+                kCGImagePropertyGIFDictionary as String: [
+                    kCGImagePropertyGIFDelayTime as String: delays[i]
+                ]
+            ] as CFDictionary
+            let frameCount = delays[i] / gcd
+            for _ in 0..<frameCount {
+                CGImageDestinationAddImage(destination, cgImage, frameProperties)
+            }
+        }
+    }
+    
+    guard CGImageDestinationFinalize(destination) else {
+        return nil
+    }
+    
+    guard let data = NSData(contentsOfFile: path) else {
+        return nil
+    }
+    
+    return NSImage(data: Data(referencing: data))
+}
+#endif
 
+@available(macOS 11.0, iOS 13.0, *)
 fileprivate func gif(_ source: CGImageSource) async -> PlatformImage? {
     gifImage(source)
 }
@@ -201,7 +248,6 @@ fileprivate func delayForImage(at index: Int, source: CGImageSource) -> Double {
         return defaultDelay
     }
 }
-#endif
 
 //@available(iOS 13.0, *)
 //struct GIFImageTest: View {
