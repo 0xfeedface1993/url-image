@@ -109,6 +109,7 @@ class UIGIFImage: PlatformView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
+        addSubview(imageView)
     }
 #endif
     
@@ -116,7 +117,6 @@ class UIGIFImage: PlatformView {
 #if os(iOS) || os(watchOS)
         imageView.contentMode = .scaleAspectFit
 #elseif os(macOS)
-        addSubview(imageView)
         imageView.image = source
         imageView.animates = true
 #endif
