@@ -39,7 +39,7 @@ struct GIFImage: PlatformViewRepresentable {
     @State var image: PlatformImage?
     
     public func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator($image, source: source)
     }
     
     init(source: TransientImage) {
@@ -66,21 +66,17 @@ struct GIFImage: PlatformViewRepresentable {
 #endif
     
     public final class Coordinator {
-        var imageView: GIFImage
+        @Binding var image: PlatformImage?
+        let source: TransientImage
         
-        init(_ imageView: GIFImage) {
-            self.imageView = imageView
-            
-            Task {
-                await load()
-            }
+        init(_ image: Binding<PlatformImage?>, source: TransientImage) {
+            self._image = image
+            self.source = source
         }
         
         func load() async {
-            let data = await gif(imageView.source)
-            Task { @MainActor in
-                imageView.image = data
-            }
+            let data = await gif(source)
+            image = data
         }
     }
 }
@@ -113,7 +109,6 @@ class UIGIFImage: PlatformView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        addSubview(imageView)
     }
 #endif
     
@@ -121,6 +116,7 @@ class UIGIFImage: PlatformView {
 #if os(iOS) || os(watchOS)
         imageView.contentMode = .scaleAspectFit
 #elseif os(macOS)
+        addSubview(imageView)
         imageView.image = source
         imageView.animates = true
 #endif
