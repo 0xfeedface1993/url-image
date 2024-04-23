@@ -36,10 +36,11 @@ public struct GIFWrapperImage: View {
 @available(macOS 11.0, iOS 14.0, *)
 struct GIFImage: PlatformViewRepresentable {
     private var source: TransientImage
-    @State var image: PlatformImage?
     
     public func makeCoordinator() -> Coordinator {
-        Coordinator($image, source: source)
+        Coordinator({ image in
+            print("Oops!")
+        }, source: source)
     }
     
     init(source: TransientImage) {
@@ -48,35 +49,43 @@ struct GIFImage: PlatformViewRepresentable {
     
 #if os(iOS) || os(watchOS)
     public func makeUIView(context: Context) -> UIGIFImage {
-        UIGIFImage(source: image)
+        let view = UIGIFImage(source: nil)
+        context.coordinator.updateImage = { image in
+            view.imageView.image = image
+        }
+        return view
     }
     
     public func updateUIView(_ uiView: UIGIFImage, context: Context) {
-        uiView.imageView.image = image
+        
     }
 #elseif os(macOS)
     func makeNSView(context: Context) -> UIGIFImage {
-        UIGIFImage(source: image)
+        let view = UIGIFImage(source: nil)
+        context.coordinator.updateImage = { image in
+            view.imageView.image = image
+            view.imageView.animates = true
+        }
+        return view
     }
     
     func updateNSView(_ nsView: NSViewType, context: Context) {
-        nsView.imageView.image = image
-        nsView.imageView.animates = true
+        
     }
 #endif
     
     public final class Coordinator {
-        @Binding var image: PlatformImage?
         let source: TransientImage
+        var updateImage: (PlatformImage?) -> Void
         
-        init(_ image: Binding<PlatformImage?>, source: TransientImage) {
-            self._image = image
+        init(_ updator: @escaping (PlatformImage?) -> Void, source: TransientImage) {
+            self.updateImage = updator
             self.source = source
         }
         
         func load() async {
             let data = await gif(source)
-            image = data
+            updateImage(data)
         }
     }
 }
