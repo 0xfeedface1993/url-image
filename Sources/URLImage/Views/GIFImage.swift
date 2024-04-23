@@ -53,6 +53,9 @@ struct GIFImage: PlatformViewRepresentable {
         context.coordinator.updateImage = { image in
             view.imageView.image = image
         }
+        Task {
+            await context.coordinator.load()
+        }
         return view
     }
     
@@ -65,6 +68,9 @@ struct GIFImage: PlatformViewRepresentable {
         context.coordinator.updateImage = { image in
             view.imageView.image = image
             view.imageView.animates = true
+        }
+        Task {
+            await context.coordinator.load()
         }
         return view
     }
@@ -85,7 +91,9 @@ struct GIFImage: PlatformViewRepresentable {
         
         func load() async {
             let data = await gif(source)
-            updateImage(data)
+            Task { @MainActor in
+                updateImage(data)
+            }
         }
     }
 }
