@@ -62,16 +62,33 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
 @available(macOS 11.0, iOS 14.0, *)
 public struct GIFImageView: View {
     var image: PlatformImage
+    @Environment(\.imageConfigures) var imageConfigures
+    
+    init(image: PlatformImage) {
+        self.image = image
+    }
     
     public var body: some View {
-        GIFRepresentView(image: image)
-            .aspectRatio(image.size, contentMode: .fit)
+        if imageConfigures.resizeble, let aspectRatio = imageConfigures.aspectRatio {
+            GIFRepresentView(image: image)
+                .aspectRatio(aspectRatio, contentMode: imageConfigures.contentMode == .fit ? .fit:.fill)
+        }   else    {
+            GIFRepresentView(image: image)
+                .frame(width: image.size.width, height: image.size.height)
+        }
+    }
+}
+
+public extension View {
+    func aspectResizeble(ratio: CGFloat, contentMode: ContentMode = .fit) -> some View {
+        self.environment(\.imageConfigures, ImageConfigures(aspectRatio: ratio, contentMode: contentMode, resizeble: true))
     }
 }
 
 @available(macOS 11.0, iOS 14.0, *)
 struct GIFRepresentView: PlatformViewRepresentable {
     var image: PlatformImage
+    @Environment(\.imageConfigures) var imageConfigures
     
 #if os(iOS) || os(watchOS)
     public func makeUIView(context: Context) -> UIGIFImage {
@@ -95,6 +112,7 @@ struct GIFRepresentView: PlatformViewRepresentable {
 public final class UIGIFImage: PlatformView {
     let imageView = PlatformImageView()
     var source: PlatformImage?
+    var imageConfigures: ImageConfigures?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -126,10 +144,10 @@ public final class UIGIFImage: PlatformView {
     
     private func initView() {
 #if os(iOS) || os(watchOS)
-        imageView.contentMode = .scaleAspectFit
+        imageView.contentMode = imageConfigures?.contentMode == .fit ? .scaleAspectFit:.scaleAspectFill
         imageView.image = source
 #elseif os(macOS)
-        imageView.imageScaling = .scaleAxesIndependently
+        imageView.imageScaling = imageConfigures?.contentMode == .fit ? .scaleAxesIndependently:.scaleProportionallyUpOrDown
         imageView.image = source
         imageView.animates = true
 #endif
@@ -161,6 +179,39 @@ public struct Scenes {
 #endif
 }
 
+public enum ContentMode {
+    case fit
+    case fill
+}
+
+struct ImageConfigures {
+    var aspectRatio: CGFloat?
+    var contentMode: ContentMode
+    var resizeble: Bool
+    
+    func aspectRatio(_ aspectRatio: CGFloat) -> ImageConfigures {
+        var configures = self
+        configures.aspectRatio = aspectRatio
+        return configures
+    }
+
+    func contentMode(_ contentMode: ContentMode) -> ImageConfigures {
+        var configures = self
+        configures.contentMode = contentMode
+        return configures
+    }
+}
+
+struct ImageConfiguresEnvironmentKey: EnvironmentKey {
+    static var defaultValue = ImageConfigures(aspectRatio: nil, contentMode: .fit, resizeble: false)
+}
+
+extension EnvironmentValues {
+    var imageConfigures: ImageConfigures {
+        get { self[ImageConfiguresEnvironmentKey.self] }
+        set { self[ImageConfiguresEnvironmentKey.self] = newValue }
+    }
+}
 
 
 //@available(iOS 13.0, *)
