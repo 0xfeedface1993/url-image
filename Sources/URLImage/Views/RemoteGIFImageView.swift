@@ -60,7 +60,6 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
                     content(
                         GIFImageView(image: image)
                     )
-                    .aspectRatio(next.info.size, contentMode: .fit)
                 }   else    {
                     inProgress(1.0)
                 }

@@ -60,7 +60,17 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
 }
 
 @available(macOS 11.0, iOS 14.0, *)
-public struct GIFImageView: PlatformViewRepresentable {
+public struct GIFImageView: View {
+    var image: PlatformImage
+    
+    public var body: some View {
+        GIFRepresentView(image: image)
+            .aspectRatio(image.size, contentMode: .fit)
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, *)
+struct GIFRepresentView: PlatformViewRepresentable {
     var image: PlatformImage
     
 #if os(iOS) || os(watchOS)
