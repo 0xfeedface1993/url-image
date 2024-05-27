@@ -48,17 +48,23 @@ public final class Database {
     public func async(_ closure: @escaping (_ context: NSManagedObjectContext) throws -> Void) async {
         if #available(macOS 12.0, iOS 15.0, *) {
             do {
-                try await context.perform(schedule: .immediate) { [unowned self] in
-                    try closure(self.context)
+                try await context.perform(schedule: .immediate) { [weak context] in
+                    guard let context = context else {
+                        return
+                    }
+                    try closure(context)
                 }
             } catch {
                 print(error)
             }
         } else {
             // Fallback on earlier versions
-            context.perform { [unowned self] in
+            context.perform {  [weak context] in
+                guard let context = context else {
+                    return
+                }
                 do {
-                    try closure(self.context)
+                    try closure(context)
                 }
                 catch {
                     print(error)
@@ -68,9 +74,12 @@ public final class Database {
     }
     
     public func async(_ closure: @escaping (_ context: NSManagedObjectContext) throws -> Void) {
-        context.perform { [unowned self] in
+        context.perform { [weak context] in
+            guard let context = context else {
+                return
+            }
             do {
-                try closure(self.context)
+                try closure(context)
             }
             catch {
                 print(error)
@@ -79,9 +88,12 @@ public final class Database {
     }
 
     public func sync(_ closure: (_ context: NSManagedObjectContext) throws -> Void) {
-        context.performAndWait { [unowned self] in
+        context.performAndWait { [weak context] in
+            guard let context = context else {
+                return
+            }
             do {
-                try closure(self.context)
+                try closure(context)
             }
             catch {
                 print(error)
@@ -93,9 +105,12 @@ public final class Database {
     public func sync<T>(_ closure: (_ context: NSManagedObjectContext) throws -> T) throws -> T {
         var result: Result<T, Error>? = nil
 
-        context.performAndWait { [unowned self] in
+        context.performAndWait { [weak context] in
+            guard let context = context else {
+                return
+            }
             do {
-                result = .success(try closure(self.context))
+                result = .success(try closure(context))
             }
             catch {
                 result = .failure(error)
