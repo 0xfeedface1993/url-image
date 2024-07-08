@@ -49,13 +49,14 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
     }
     
     public var body: some View {
-        let remoteImage = urlImageService.makeRemoteImage(url: url, identifier: nil, options: options)
-        return RemoteGIFImageView(remoteImage: remoteImage,
-                                  loadOptions: options.loadOptions,
-                                  empty: empty,
-                                  inProgress: inProgress,
-                                  failure: failure,
-                                  content: content)
+        InstalledRemoteView(service: urlImageService, url: url, identifier: nil, options: options) { remoteImage in
+            RemoteGIFImageView(remoteImage: remoteImage,
+                               loadOptions: options.loadOptions,
+                               empty: empty,
+                               inProgress: inProgress,
+                               failure: failure,
+                               content: content)
+        }
     }
 }
 

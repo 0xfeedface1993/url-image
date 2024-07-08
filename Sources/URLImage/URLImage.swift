@@ -32,14 +32,14 @@ public struct URLImage<Empty, InProgress, Failure, Content> : View where Empty :
     let identifier: String?
 
     public var body: some View {
-        let remoteImage = service.makeRemoteImage(url: url, identifier: identifier, options: urlImageOptions)
-
-        return RemoteImageView(remoteImage: remoteImage,
-                               loadOptions: urlImageOptions.loadOptions,
-                               empty: empty,
-                               inProgress: inProgress,
-                               failure: failure,
-                               content: content)
+        InstalledRemoteView(service: service, url: url, identifier: identifier, options: urlImageOptions) { remoteImage in
+            RemoteImageView(remoteImage: remoteImage,
+                                   loadOptions: urlImageOptions.loadOptions,
+                                   empty: empty,
+                                   inProgress: inProgress,
+                                   failure: failure,
+                                   content: content)
+        }
     }
 
     private let empty: () -> Empty
@@ -282,5 +282,21 @@ public extension URLImage where InProgress == Content,
                   inProgress: { _ in content(.empty) },
                   failure: { error, retry in content(.failure(error)) },
                   content: { image in content(.success(image)) })
+    }
+}
+
+struct InstalledRemoteView<Content: View>: View {
+    var service: URLImageService
+    var remoteImge: RemoteImage
+    var content: (RemoteImage) -> Content
+    
+    init(service: URLImageService, url: URL, identifier: String?, options: URLImageOptions, @ViewBuilder content: @escaping (RemoteImage) -> Content) {
+        self.service = service
+        self.remoteImge = service.makeRemoteImage(url: url, identifier: identifier, options: options)
+        self.content = content
+    }
+    
+    var body: some View {
+        content(remoteImge)
     }
 }

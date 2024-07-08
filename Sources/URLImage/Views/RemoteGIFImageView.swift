@@ -13,7 +13,7 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
                                                                          InProgress : View,
                                                                          Failure : View,
                                                                          Content : View {
-    @ObservedObject private(set) var remoteImage: RemoteImage
+    @ObservedObject private var remoteImage: RemoteImage
     @Environment(\.urlImageService) var urlImageService
     @Environment(\.urlImageOptions) var options
     @State private var image: PlatformImage?
@@ -42,7 +42,6 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
 
         if loadOptions.contains(.loadImmediately) {
             remoteImage.load()
-            prepare(remoteImage.loadingState)
         }
     }
     
@@ -79,14 +78,17 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
                 remoteImage.cancel()
             }
         }
-        .onReceive(remoteImage.$loadingState, perform: prepare(_:))
+        .onReceive(remoteImage.$loadingState.receive(on: DispatchQueue.main), perform: { newValue in
+            prepare(newValue)
+        })
+        .task {
+            prepare(remoteImage.loadingState)
+        }
     }
     
     private func prepare(_ state: RemoteImage.LoadingState) {
         if case .success(let next) = state {
-            Task {
-                await load(options.maxPixelSize)
-            }
+            load(options.maxPixelSize)
         }
     }
     
@@ -107,22 +109,24 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
 //#endif
 //    }
     
-    private func load(_ maxPixelSize: CGSize?) async {
+    private func load(_ maxPixelSize: CGSize?) {
         guard let fileStore = urlImageService.fileStore else {
             print("fileStore missing")
             return
         }
         
-        do {
-            for try await value in fileStore.getImagePublisher([.url(remoteImage.download.url)], maxPixelSize: maxPixelSize).values {
-                guard let value = value else {
-                    continue
+        Task {
+            do {
+                for try await value in fileStore.getImagePublisher([.url(remoteImage.download.url)], maxPixelSize: maxPixelSize).values {
+                    guard let value = value else {
+                        continue
+                    }
+                    let data = await gif(value)
+                    image = data
                 }
-                let data = await gif(value)
-                image = data
+            } catch {
+                print("retrive image with \(remoteImage.download.url) failed. \(error)")
             }
-        } catch {
-            print("retrive image with \(remoteImage.download.url) failed. \(error)")
         }
     }
 }
