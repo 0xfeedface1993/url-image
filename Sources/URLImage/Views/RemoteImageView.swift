@@ -39,7 +39,7 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
         self.failure = failure
         self.content = content
 
-        if loadOptions.contains(.loadImmediately) {
+        if loadOptions.contains(.loadImmediately), !remoteImage.loadingState.isSuccess {
             remoteImage.load()
         }
     }
@@ -55,7 +55,6 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
 
                 case .success(let value):
                     content(value)
-
                 case .failure(let error):
                     failure(error) {
                         remoteImage.load()
@@ -63,7 +62,7 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             }
         }
         .onAppear {
-            if loadOptions.contains(.loadOnAppear) {
+            if loadOptions.contains(.loadOnAppear), !remoteImage.loadingState.isSuccess {
                 remoteImage.load()
             }
         }

@@ -285,6 +285,7 @@ public extension URLImage where InProgress == Content,
     }
 }
 
+@available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 struct InstalledRemoteView<Content: View>: View {
     var service: URLImageService
     var remoteImge: RemoteImage
