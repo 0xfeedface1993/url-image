@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Combine
+@preconcurrency import Combine
 import AsyncExtensions
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
@@ -69,16 +69,19 @@ public final class DownloadManager {
     public func download(for download: Download) -> AsyncStream<Result<DownloadInfo, Error>> {
         let coordinator = self.coordinator
         let publishers = self.publishers
+        let task: @Sendable (AsyncStream<Result<DownloadInfo, Error>>.Continuation) async -> Void = { continuation in
+            let _ = await publishers.store(download, coordinator: coordinator, action: { result in
+                switch result {
+                case .success(let info):
+                    continuation.yield(.success(info))
+                case .failure(let error):
+                    continuation.yield(with: .success(.failure(error)))
+                }
+            })
+        }
         return AsyncStream { continuation in
             Task {
-                let _ = await publishers.store(download, coordinator: coordinator, action: { result in
-                    switch result {
-                    case .success(let info):
-                        continuation.yield(.success(info))
-                    case .failure(let error):
-                        continuation.yield(with: .success(.failure(error)))
-                    }
-                })
+                await task(continuation)
             }
         }
     }
@@ -171,7 +174,7 @@ enum DownloadEventError: Error {
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-actor PublishersHolder {
+actor PublishersHolder: @unchecked Sendable {
     private var publishers: [URL: DownloadManager.DownloadTaskPublisher] = [:]
     private var cancellableHashTable = [UUID: AnyCancellable]()
     private var cancellables = [URL: Set<UUID>]()

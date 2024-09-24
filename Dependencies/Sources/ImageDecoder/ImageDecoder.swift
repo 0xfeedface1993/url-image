@@ -6,7 +6,7 @@
 //
 //  ImageDecoder is based on ImageDecoderCG from WebCore https://trac.webkit.org/browser/webkit/trunk/Source/WebCore/platform/graphics/cg/ImageDecoderCG.cpp
 
-import ImageIO
+@preconcurrency import ImageIO
 import Foundation
 
 #if canImport(MobileCoreServices)
@@ -19,7 +19,7 @@ import Cocoa
 
 
 @available(iOS 14.0, tvOS 14.0, macOS 11.0, watchOS 7.0, *)
-public final class ImageDecoder {
+public final class ImageDecoder: @unchecked Sendable {
 
     public struct DecodingOptions {
 
@@ -273,11 +273,11 @@ public final class ImageDecoder {
 
     // MARK: - Private
 
-    private static let imageSourceOptions: [CFString: Any] = [
+    nonisolated(unsafe) private static let imageSourceOptions: [CFString: Any] = [
         kCGImageSourceShouldCache: true
     ]
 
-    private static let imageSourceAsyncOptions: [CFString: Any] = [
+    nonisolated(unsafe) private static let imageSourceAsyncOptions: [CFString: Any] = [
         kCGImageSourceShouldCacheImmediately: true,
         kCGImageSourceCreateThumbnailFromImageAlways: true
     ]

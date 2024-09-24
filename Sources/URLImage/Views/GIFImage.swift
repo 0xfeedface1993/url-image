@@ -162,7 +162,7 @@ public struct Scenes {
     }
     
 #if os(iOS) || os(watchOS)
-    func keyScreen() -> UIScreen {
+    @MainActor func keyScreen() -> UIScreen {
         UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first(where: {
@@ -170,7 +170,7 @@ public struct Scenes {
             })?.screen ?? UIScreen.main
     }
     
-    public func nativeScale() -> CGFloat {
+    @MainActor public func nativeScale() -> CGFloat {
         keyScreen().nativeScale
     }
 #elseif os(macOS)
@@ -203,8 +203,8 @@ struct ImageConfigures {
     }
 }
 
-struct ImageConfiguresEnvironmentKey: EnvironmentKey {
-    static var defaultValue = ImageConfigures(aspectRatio: nil, contentMode: .fit, resizeble: false)
+struct ImageConfiguresEnvironmentKey: @preconcurrency EnvironmentKey {
+    @MainActor static var defaultValue = ImageConfigures(aspectRatio: nil, contentMode: .fit, resizeble: false)
 }
 
 extension EnvironmentValues {

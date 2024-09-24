@@ -9,12 +9,12 @@ import Foundation
 import Log
 
 
-final class URLSessionDelegate : NSObject {
+final class URLSessionDelegate : NSObject, @unchecked Sendable {
 
     // URLSessionTaskDelegate
 
     /// func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?)
-    typealias TaskDidCompleteWithError = (_ task: URLSessionTask, _ error: Error?) -> Void
+    typealias TaskDidCompleteWithError = @Sendable (_ task: URLSessionTask, _ error: Error?) -> Void
 
     private var taskDidCompleteWithError: TaskDidCompleteWithError?
 
@@ -27,7 +27,7 @@ final class URLSessionDelegate : NSObject {
     // URLSessionDataDelegate
 
     /// func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void)
-    typealias DataTaskDidReceiveResponse = (_ task: URLSessionDataTask, _ response: URLResponse, _ completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) -> Void
+    typealias DataTaskDidReceiveResponse = (_ task: URLSessionDataTask, _ response: URLResponse, _ completionHandler: @Sendable @escaping (URLSession.ResponseDisposition) -> Void) -> Void
 
     private var dataTaskDidReceiveResponse: DataTaskDidReceiveResponse?
 
@@ -117,7 +117,7 @@ extension URLSessionDelegate : URLSessionTaskDelegate {
 
 extension URLSessionDelegate : URLSessionDataDelegate {
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @Sendable @escaping (URLSession.ResponseDisposition) -> Void) {
         log_debug(self, #function, "\(String(describing: dataTask.originalRequest))", detail: log_detailed)
         dataTaskDidReceiveResponse?(dataTask, response, completionHandler)
     }

@@ -27,7 +27,7 @@ public struct URLImageOptions {
     }
 
     /// Controls some aspects of download process
-    public struct LoadOptions: OptionSet, Hashable {
+    public struct LoadOptions: OptionSet, Hashable, Sendable {
 
         public let rawValue: Int
 

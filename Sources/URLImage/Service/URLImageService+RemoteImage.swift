@@ -34,7 +34,7 @@ extension URLImageService {
         }
     }
 
-    final class RemoteImageSubscription<SubscriberType: Subscriber>: Subscription where SubscriberType.Input == ImageInfo,
+    final class RemoteImageSubscription<SubscriberType: Subscriber>: Subscription, @unchecked Sendable where SubscriberType.Input == ImageInfo,
                                                                                        SubscriberType.Failure == Error {
 
         private var subscriber: SubscriberType?

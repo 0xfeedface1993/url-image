@@ -13,7 +13,7 @@ import DownloadManager
 
 /// Temporary representation used after decoding an image from data or file on disk and before creating an image object for display.
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public struct TransientImage {
+public struct TransientImage: Sendable {
 
     public var cgImage: CGImage {
         proxy.cgImage
@@ -42,7 +42,7 @@ public struct TransientImage {
 
 /// Proxy used to decode image lazily
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public final class CGImageProxy {
+public final class CGImageProxy: @unchecked Sendable {
 
     public let decoder: ImageDecoder
 

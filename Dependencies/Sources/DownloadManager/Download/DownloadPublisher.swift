@@ -35,7 +35,7 @@ public struct DownloadPublisher: Publisher {
 
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-final class DownloadSubscription<SubscriberType: Subscriber>: Subscription
+final class DownloadSubscription<SubscriberType: Subscriber>: Subscription, @unchecked Sendable
                                                         where SubscriberType.Input == DownloadInfo,
                                                               SubscriberType.Failure == DownloadError
 {

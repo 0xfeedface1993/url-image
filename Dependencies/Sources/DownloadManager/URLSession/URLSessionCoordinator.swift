@@ -12,7 +12,7 @@ import Log
 
 /// `URLSessionCoordinator` manages `URLSession` instance and forwards callbacks to responding `DownloadController` instances.
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-final class URLSessionCoordinator {
+final class URLSessionCoordinator: @unchecked Sendable {
 
     init(urlSessionConfiguration: URLSessionConfiguration) {
         let delegate = URLSessionDelegate()
@@ -184,7 +184,7 @@ final class URLSessionCoordinator {
 
     private let serialQueue = DispatchQueue(label: "URLSessionCoordinator.serialQueue")
 
-    private func async(_ closure: @escaping () -> Void) {
+    private func async(_ closure: @Sendable @escaping () -> Void) {
         serialQueue.async(execute: closure)
     }
 

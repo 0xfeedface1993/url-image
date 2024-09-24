@@ -9,16 +9,16 @@ import SwiftUI
 
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-private struct URLImageServiceEnvironmentKey: EnvironmentKey {
+private struct URLImageServiceEnvironmentKey: @preconcurrency EnvironmentKey {
 
-    static let defaultValue: URLImageService = URLImageService()
+    @MainActor static let defaultValue: URLImageService = URLImageService()
 }
 
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-private struct URLImageOptionsEnvironmentKey: EnvironmentKey {
+private struct URLImageOptionsEnvironmentKey: @preconcurrency EnvironmentKey {
 
-    static let defaultValue: URLImageOptions = URLImageOptions()
+    @MainActor static let defaultValue: URLImageOptions = URLImageOptions()
 }
 
 

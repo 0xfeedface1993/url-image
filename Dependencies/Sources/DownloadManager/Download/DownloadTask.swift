@@ -9,9 +9,9 @@ import Foundation
 
 
 /// `DownloadTask` is a wrapper around `URLSessionTask` that accumulates received data in a memory buffer.
-final class DownloadTask {
+final class DownloadTask: @unchecked Sendable {
 
-    final class Observer {
+    final class Observer: @unchecked Sendable {
 
         private var receiveResponse: DownloadReceiveResponse?
 

@@ -13,7 +13,7 @@ import DownloadManager
 
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public class URLImageService {
+public class URLImageService: @unchecked Sendable {
 
     public init(fileStore: URLImageFileStoreType? = nil, inMemoryStore: URLImageInMemoryStoreType? = nil) {
         self.fileStore = fileStore
