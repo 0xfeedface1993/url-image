@@ -233,7 +233,7 @@ public final class ImageDecoder {
 
             case .synchronous:
                 options = imageSourceOptions(with: subsamplingLevel)
-                image = CGImageSourceCreateImageAtIndex(imageSource, index, options)
+                image = CGImageSourceCreateThumbnailAtIndex(imageSource, index, options)
         }
 
         // WebKit has support for xbm images but we don't

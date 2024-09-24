@@ -28,6 +28,24 @@ public enum RemoteImageLoadingState {
     case failure(_ error: Error)
 }
 
+@available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
+extension RemoteImageLoadingState: Equatable {
+    public static func == (lhs: RemoteImageLoadingState, rhs: RemoteImageLoadingState) -> Bool {
+        switch (lhs, rhs) {
+        case (.initial, .initial):
+            return true
+        case (.inProgress(let lp), .inProgress(let rp)):
+            return lp == rp
+        case (.success(let lv), .success(let rv)):
+            return lv.image == rv.image
+        case (.failure(_), .failure(_)):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public extension RemoteImageLoadingState {

@@ -28,4 +28,23 @@ extension URLImageFileStoreType {
             }
         }.eraseToAnyPublisher()
     }
+    
+    func getImage(_ keys: [URLImageKey], maxPixelSize: CGSize?) async throws -> TransientImage? {
+        try await withCheckedThrowingContinuation { continuation in
+            getImage(keys) { location -> TransientImage in
+                guard let transientImage = TransientImage(location: location, maxPixelSize: maxPixelSize) else {
+                    throw URLImageError.decode
+                }
+
+                return transientImage
+            } completion: { result in
+                switch result {
+                case .success(let image):
+                    continuation.resume(returning: image)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 }

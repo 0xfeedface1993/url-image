@@ -19,4 +19,10 @@ public struct URLImageStoreInfo {
 
     /// The uniform type identifier (UTI) of the image.
     public var uti: String
+    
+    public init(url: URL, identifier: String? = nil, uti: String) {
+        self.url = url
+        self.identifier = identifier
+        self.uti = uti
+    }
 }

@@ -21,16 +21,16 @@ public struct DownloadPublisher: Publisher {
                                                 DownloadPublisher.Failure == S.Failure,
                                                 DownloadPublisher.Output == S.Input
     {
-        let subscription = DownloadSubscription(subscriber: subscriber, download: download, manager: manager)
+        let subscription = DownloadSubscription(subscriber: subscriber, download: download, coordinator: coordinator)
         subscriber.receive(subscription: subscription)
     }
 
-    init(download: Download, manager: DownloadManager) {
+    init(download: Download, coordinator: URLSessionCoordinator) {
         self.download = download
-        self.manager = manager
+        self.coordinator = coordinator
     }
 
-    private let manager: DownloadManager
+    private let coordinator: URLSessionCoordinator
 }
 
 
@@ -43,12 +43,12 @@ final class DownloadSubscription<SubscriberType: Subscriber>: Subscription
 
     private let download: Download
 
-    private unowned let manager: DownloadManager
+    private unowned let coordinator: URLSessionCoordinator
 
-    init(subscriber: SubscriberType, download: Download, manager: DownloadManager) {
+    init(subscriber: SubscriberType, download: Download, coordinator: URLSessionCoordinator) {
         self.subscriber = subscriber
         self.download = download
-        self.manager = manager
+        self.coordinator = coordinator
     }
 
     func request(_ demand: Subscribers.Demand) {
@@ -56,7 +56,7 @@ final class DownloadSubscription<SubscriberType: Subscriber>: Subscription
 
         log_debug(self, #function, "download.id = \(download.id), download.url = \(self.download.url)", detail: log_detailed)
 
-        manager.coordinator.startDownload(download,
+        coordinator.startDownload(download,
             receiveResponse: { _ in
             },
             receiveData: {  _, _ in
@@ -90,13 +90,13 @@ final class DownloadSubscription<SubscriberType: Subscriber>: Subscription
                         self.subscriber?.receive(completion: .failure(error))
                 }
 
-                self.manager.reset(download: self.download)
+//                self.manager.reset(download: self.download)
             })
     }
 
     func cancel() {
         log_debug(self, #function, "download.id = \(download.id), download.url = \(self.download.url)", detail: log_detailed)
-        manager.coordinator.cancelDownload(download)
-        manager.reset(download: download)
+        coordinator.cancelDownload(download)
+//        manager.reset(download: download)
     }
 }

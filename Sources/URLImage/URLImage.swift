@@ -288,16 +288,41 @@ public extension URLImage where InProgress == Content,
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 struct InstalledRemoteView<Content: View>: View {
     var service: URLImageService
-    var remoteImge: RemoteImage
     var content: (RemoteImage) -> Content
+    var url: URL
+    var identifier: String?
+    var options: URLImageOptions
+    @State private var remoteImage: RemoteImage?
     
     init(service: URLImageService, url: URL, identifier: String?, options: URLImageOptions, @ViewBuilder content: @escaping (RemoteImage) -> Content) {
         self.service = service
-        self.remoteImge = service.makeRemoteImage(url: url, identifier: identifier, options: options)
         self.content = content
+        self.url = url
+        self.identifier = identifier
+        self.options = options
     }
     
     var body: some View {
-        content(remoteImge)
+        if let remoteImge = remoteImage {
+            content(remoteImge)
+        } else {
+            Color.clear.backport.task {
+                await inital()
+            }
+        }
+    }
+    
+    private func inital() async {
+        let image = service.makeRemoteImage(url: url, identifier: identifier, options: options)
+        remoteImage = image
+        if options.loadOptions.contains(.loadImmediately) {
+            await withTaskCancellationHandler {
+                await image.load()
+            } onCancel: {
+                image.cancel()
+            }
+        }
     }
 }
+
+

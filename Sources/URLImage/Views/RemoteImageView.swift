@@ -15,7 +15,8 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
                                                                          InProgress : View,
                                                                          Failure : View,
                                                                          Content : View {
-    @ObservedObject private(set) var remoteImage: RemoteImage
+    @ObservedObject var remoteImage: RemoteImage
+    @Environment(\.urlImageOptions) var urlImageOptions
 
     let loadOptions: URLImageOptions.LoadOptions
 
@@ -23,6 +24,9 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
     let inProgress: (_ progress: Float?) -> InProgress
     let failure: (_ error: Error, _ retry: @escaping () -> Void) -> Failure
     let content: (_ value: TransientImage) -> Content
+    
+    @Namespace var namespace
+    @State var animateState: RemoteImageLoadingState = .initial
 
     init(remoteImage: RemoteImage,
          loadOptions: URLImageOptions.LoadOptions,
@@ -39,37 +43,61 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
         self.failure = failure
         self.content = content
 
-        if loadOptions.contains(.loadImmediately), !remoteImage.loadingState.isSuccess {
-            remoteImage.load()
-        }
+//        if loadOptions.contains(.loadImmediately), !remoteImage.loadingState.isSuccess {
+//            remoteImage.load()
+//        }
     }
-
+    
     var body: some View {
         ZStack {
-            switch remoteImage.loadingState {
-                case .initial:
-                    empty()
-
-                case .inProgress(let progress):
-                    inProgress(progress)
-
-                case .success(let value):
-                    content(value)
-                case .failure(let error):
-                    failure(error) {
-                        remoteImage.load()
-                    }
+            switch animateState {
+            case .initial:
+                empty()
+                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
+            case .inProgress(let progress):
+                inProgress(progress)
+                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
+            case .success(let value):
+                content(value)
+                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
+            case .failure(let error):
+                failure(error) {
+                    loadRemoteImage()
+                }
+                .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             }
         }
         .onAppear {
-            if loadOptions.contains(.loadOnAppear), !remoteImage.loadingState.isSuccess {
-                remoteImage.load()
+            if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.isSuccess {
+                loadRemoteImage()
             }
         }
         .onDisappear {
             if loadOptions.contains(.cancelOnDisappear) {
                 remoteImage.cancel()
             }
+        }
+        .onReceive(remoteImage.$slowLoadingState) { newValue in
+            guard urlImageOptions.loadingAnimated else {
+                animateState = newValue
+                return
+            }
+            
+            withAnimation(.smooth) {
+                animateState = newValue
+            }
+        }
+    }
+    
+    private func loadRemoteImage() {
+        Task {
+            await withTaskCancellationHandler(operation: {
+                await remoteImage.load()
+            }, onCancel: {
+                Task {
+                    await remoteImage.cancel()
+                }
+            })
         }
     }
 }

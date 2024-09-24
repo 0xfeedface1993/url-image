@@ -40,21 +40,21 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
         self.failure = failure
         self.content = content
 
-        if loadOptions.contains(.loadImmediately) {
-            remoteImage.load()
-        }
+//        if loadOptions.contains(.loadImmediately) {
+//            remoteImage.load()
+//        }
     }
     
     var body: some View {
         ZStack {
-            switch remoteImage.loadingState {
+            switch remoteImage.slowLoadingState {
             case .initial:
                 empty()
                 
             case .inProgress(let progress):
                 inProgress(progress)
                 
-            case .success(let next):
+            case .success(_):
                 if let image = image {
                     content(
                         GIFImageView(image: image)
@@ -63,14 +63,12 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
                     inProgress(1.0)
                 }
             case .failure(let error):
-                failure(error) {
-                    remoteImage.load()
-                }
+                failure(error, loadRemoteImage)
             }
         }
         .onAppear {
             if loadOptions.contains(.loadOnAppear) {
-                remoteImage.load()
+                loadRemoteImage()
             }
         }
         .onDisappear {
@@ -78,17 +76,35 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
                 remoteImage.cancel()
             }
         }
-        .onReceive(remoteImage.$loadingState.receive(on: DispatchQueue.main), perform: { newValue in
-            prepare(newValue)
+        .onReceive(remoteImage.$slowLoadingState.receive(on: DispatchQueue.main), perform: { newValue in
+            Task {
+                await prepare(newValue)
+            }
         })
         .task {
-            prepare(remoteImage.loadingState)
+            await prepare(remoteImage.slowLoadingState)
         }
     }
     
-    private func prepare(_ state: RemoteImage.LoadingState) {
-        if case .success(let next) = state {
-            load(options.maxPixelSize)
+    private func prepare(_ state: RemoteImage.LoadingState) async {
+        if case .success(_) = state {
+            if let image = await loadMemoryStore(options.maxPixelSize) {
+                self.image = image
+                return
+            }
+            await load(options.maxPixelSize)
+        }
+    }
+    
+    private func loadRemoteImage() {
+        Task {
+            await withTaskCancellationHandler(operation: {
+                await remoteImage.load()
+            }, onCancel: {
+                Task {
+                    await remoteImage.cancel()
+                }
+            })
         }
     }
     
@@ -109,25 +125,37 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
 //#endif
 //    }
     
-    private func load(_ maxPixelSize: CGSize?) {
+    private func load(_ maxPixelSize: CGSize?) async {
         guard let fileStore = urlImageService.fileStore else {
             print("fileStore missing")
             return
         }
         
-        Task {
-            do {
-                for try await value in fileStore.getImagePublisher([.url(remoteImage.download.url)], maxPixelSize: maxPixelSize).values {
-                    guard let value = value else {
-                        continue
-                    }
-                    let data = await gif(value)
-                    image = data
+        do {
+            for try await value in fileStore.getImagePublisher([.url(remoteImage.download.url)], maxPixelSize: maxPixelSize).values {
+                guard let value = value else {
+                    continue
                 }
-            } catch {
-                print("retrive image with \(remoteImage.download.url) failed. \(error)")
+                let data = await gif(value)
+                image = data
             }
+        } catch {
+            print("retrive image with \(remoteImage.download.url) failed. \(error)")
         }
+    }
+    
+    private func loadMemoryStore(_ maxPixelSize: CGSize?) async -> PlatformImage? {
+        guard let memoryStore = urlImageService.inMemoryStore else {
+            print("memory store missing")
+            return nil
+        }
+        
+        guard let value: TransientImage = memoryStore.getImage([.url(remoteImage.download.url)]) else {
+            print("\(remoteImage.download.url) not cached in memory store")
+            return nil
+        }
+        
+        return await gif(value)
     }
 }
 

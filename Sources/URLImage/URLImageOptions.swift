@@ -55,15 +55,19 @@ public struct URLImageOptions {
 
     /// Maximum size of a decoded image in pixels. If this property is not specified, the width and height of a decoded is not limited and may be as big as the image itself.
     public var maxPixelSize: CGSize?
+    
+    public var loadingAnimated: Bool
 
     public init(fetchPolicy: FetchPolicy = .returnStoreElseLoad(downloadDelay: 0.25),
                 loadOptions: LoadOptions = [ .loadImmediately ],
+                loadingAnimated: Bool = true,
                 urlRequestConfiguration: Download.URLRequestConfiguration? = nil,
                 maxPixelSize: CGSize? = nil) {
         self.fetchPolicy = fetchPolicy
         self.loadOptions = loadOptions
         self.urlRequestConfiguration = urlRequestConfiguration
         self.maxPixelSize = maxPixelSize
+        self.loadingAnimated = loadingAnimated
     }
 }
 
@@ -75,6 +79,7 @@ extension URLImageOptions: Hashable {
         hasher.combine(fetchPolicy)
         hasher.combine(loadOptions)
         hasher.combine(urlRequestConfiguration)
+        hasher.combine(loadingAnimated)
 
         if let maxPixelSize = maxPixelSize {
             hasher.combine(maxPixelSize.width)

@@ -47,13 +47,14 @@ extension URLImageService {
         }
 
         private var cancellable: AnyCancellable?
+        private var task: Task<Void, Never>?
 
         func request(_ demand: Subscribers.Demand) {
             guard demand > 0 else {
                 return
             }
 
-            cancellable = remoteImage.$loadingState.sink(receiveValue: { [weak self] loadingState in
+            cancellable = remoteImage.loadingState.sink(receiveValue: { [weak self] loadingState in
                 guard let self = self else {
                     return
                 }
@@ -74,12 +75,20 @@ extension URLImageService {
                 }
             })
 
-            remoteImage.load()
+            task = Task {
+                await withTaskCancellationHandler {
+                    await remoteImage.load()
+                } onCancel: {
+                    remoteImage.cancel()
+                }
+            }
         }
 
         func cancel() {
             remoteImage.cancel()
+            task?.cancel()
             cancellable = nil
+            task = nil
         }
     }
 
