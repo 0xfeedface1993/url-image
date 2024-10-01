@@ -35,9 +35,7 @@ public struct DownloadPublisher: Publisher {
 
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-final class DownloadSubscription<SubscriberType: Subscriber>: Subscription, @unchecked Sendable
-                                                        where SubscriberType.Input == DownloadInfo,
-                                                              SubscriberType.Failure == DownloadError
+final class DownloadSubscription<SubscriberType: Subscriber>: Subscription where SubscriberType.Input == DownloadInfo, SubscriberType.Failure == DownloadError
 {
     private var subscriber: SubscriberType?
 
@@ -55,39 +53,34 @@ final class DownloadSubscription<SubscriberType: Subscriber>: Subscription, @unc
         guard demand > 0 else { return }
 
         log_debug(self, #function, "download.id = \(download.id), download.url = \(self.download.url)", detail: log_detailed)
+        nonisolated(unsafe) let subscriber = subscriber
+        let download = download
+        let type = Self.self
 
         coordinator.startDownload(download,
             receiveResponse: { _ in
             },
             receiveData: {  _, _ in
             },
-            reportProgress: { [weak self] _, progress in
-                guard let self = self else {
-                    return
-                }
-
-                let _ = self.subscriber?.receive(.progress(progress))
+            reportProgress: { _, progress in
+                let _ = subscriber?.receive(.progress(progress))
             },
-            completion: { [weak self] _, result in
-                guard let self = self else {
-                    return
-                }
-                
+            completion: { _, result in
                 switch result {
                     case .success(let downloadResult):
                         switch downloadResult {
                             case .data(let data):
-                                log_debug(self, #function, "download.id = \(self.download.id), download.url = \(self.download.url), downloaded \(data.count) bytes", detail: log_detailed)
+                                log_debug(type, #function, "download.id = \(download.id), download.url = \(download.url), downloaded \(data.count) bytes", detail: log_detailed)
                             case .file(let path):
-                                log_debug(self, #function, "download.id = \(self.download.id), download.url = \(self.download.url), downloaded file to \(path)", detail: log_detailed)
+                                log_debug(type, #function, "download.id = \(download.id), download.url = \(download.url), downloaded file to \(path)", detail: log_detailed)
                         }
 
-                        let _ = self.subscriber?.receive(.completion(downloadResult))
-                        self.subscriber?.receive(completion: .finished)
+                        let _ = subscriber?.receive(.completion(downloadResult))
+                        subscriber?.receive(completion: .finished)
 
                     case .failure(let error):
-                        log_debug(self, #function, "download.id = \(self.download.id), download.url = \(self.download.url), downloaded failed \(error)", detail: log_detailed)
-                        self.subscriber?.receive(completion: .failure(error))
+                        log_debug(type, #function, "download.id = \(download.id), download.url = \(download.url), downloaded failed \(error)", detail: log_detailed)
+                        subscriber?.receive(completion: .failure(error))
                 }
 
 //                self.manager.reset(download: self.download)

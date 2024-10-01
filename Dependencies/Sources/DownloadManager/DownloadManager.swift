@@ -69,19 +69,17 @@ public final class DownloadManager {
     public func download(for download: Download) -> AsyncStream<Result<DownloadInfo, Error>> {
         let coordinator = self.coordinator
         let publishers = self.publishers
-        let task: @Sendable (AsyncStream<Result<DownloadInfo, Error>>.Continuation) async -> Void = { continuation in
-            let _ = await publishers.store(download, coordinator: coordinator, action: { result in
-                switch result {
-                case .success(let info):
-                    continuation.yield(.success(info))
-                case .failure(let error):
-                    continuation.yield(with: .success(.failure(error)))
-                }
-            })
-        }
         return AsyncStream { continuation in
             Task {
-                await task(continuation)
+                let _ = await publishers.store(download, coordinator: coordinator, action: { result in
+                    switch result {
+                    case .success(let info):
+                        print("yield \(info)")
+                        continuation.yield(.success(info))
+                    case .failure(let error):
+                        continuation.yield(with: .success(.failure(error)))
+                    }
+                })
             }
         }
     }
@@ -174,7 +172,7 @@ enum DownloadEventError: Error {
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-actor PublishersHolder: @unchecked Sendable {
+actor PublishersHolder: Sendable {
     private var publishers: [URL: DownloadManager.DownloadTaskPublisher] = [:]
     private var cancellableHashTable = [UUID: AnyCancellable]()
     private var cancellables = [URL: Set<UUID>]()
@@ -185,7 +183,7 @@ actor PublishersHolder: @unchecked Sendable {
         subject.finish()
     }
     
-    func store(_ download: Download, coordinator: URLSessionCoordinator, action: @escaping (Result<DownloadInfo, Error>) -> Void) -> DownloadManager.DownloadTaskPublisher {
+    func store(_ download: Download, coordinator: URLSessionCoordinator, action: @escaping (Result<DownloadInfo, Error>) -> Void) {
         if !loaded {
             loaded = true
             let subject = self.subject
@@ -226,7 +224,6 @@ actor PublishersHolder: @unchecked Sendable {
         var uuids = cancellables[download.url] ?? []
         uuids.insert(uuid)
         cancellables[download.url] = uuids
-        return publisher
     }
     
 //    func remove(_ download: Download) {

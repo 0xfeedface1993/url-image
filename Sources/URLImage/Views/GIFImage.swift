@@ -156,7 +156,7 @@ public final class UIGIFImage: PlatformView {
 }
 
 
-public struct Scenes {
+public struct Scenes: Sendable {
     public init() {
         
     }
@@ -180,12 +180,12 @@ public struct Scenes {
 #endif
 }
 
-public enum ContentMode {
+public enum ContentMode: Sendable {
     case fit
     case fill
 }
 
-struct ImageConfigures {
+struct ImageConfigures: Sendable {
     var aspectRatio: CGFloat?
     var contentMode: ContentMode
     var resizeble: Bool
@@ -203,17 +203,9 @@ struct ImageConfigures {
     }
 }
 
-struct ImageConfiguresEnvironmentKey: @preconcurrency EnvironmentKey {
-    @MainActor static var defaultValue = ImageConfigures(aspectRatio: nil, contentMode: .fit, resizeble: false)
-}
-
 extension EnvironmentValues {
-    var imageConfigures: ImageConfigures {
-        get { self[ImageConfiguresEnvironmentKey.self] }
-        set { self[ImageConfiguresEnvironmentKey.self] = newValue }
-    }
+    @Entry var imageConfigures: ImageConfigures = ImageConfigures(aspectRatio: nil, contentMode: .fit, resizeble: false)
 }
-
 
 //@available(iOS 13.0, *)
 //struct GIFImageTest: View {

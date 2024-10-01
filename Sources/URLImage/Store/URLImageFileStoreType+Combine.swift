@@ -16,15 +16,15 @@ extension URLImageFileStoreType {
 
     func getImagePublisher(_ keys: [URLImageKey], maxPixelSize: CGSize?) -> AnyPublisher<TransientImage?, Swift.Error> {
         Future<TransientImage?, Swift.Error> { promise in
+            nonisolated(unsafe) let promised = promise
             self.getImage(keys) { location -> TransientImage in
                 guard let transientImage = TransientImage(location: location, maxPixelSize: maxPixelSize) else {
                     throw URLImageError.decode
                 }
-
                 return transientImage
             }
             completion: { result in
-                promise(result)
+                promised(result)
             }
         }.eraseToAnyPublisher()
     }
@@ -35,7 +35,6 @@ extension URLImageFileStoreType {
                 guard let transientImage = TransientImage(location: location, maxPixelSize: maxPixelSize) else {
                     throw URLImageError.decode
                 }
-
                 return transientImage
             } completion: { result in
                 switch result {

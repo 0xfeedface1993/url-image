@@ -6,10 +6,11 @@
 //
 
 import Foundation
-import Combine
+@preconcurrency import Combine
 import Model
 import DownloadManager
 
+extension Published.Publisher: @unchecked Sendable where Output: Sendable { }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 extension URLImageService {
@@ -34,7 +35,7 @@ extension URLImageService {
         }
     }
 
-    final class RemoteImageSubscription<SubscriberType: Subscriber>: Subscription, @unchecked Sendable where SubscriberType.Input == ImageInfo,
+    final class RemoteImageSubscription<SubscriberType: Subscriber>: Subscription where SubscriberType.Input == ImageInfo,
                                                                                        SubscriberType.Failure == Error {
 
         private var subscriber: SubscriberType?
@@ -48,51 +49,102 @@ extension URLImageService {
 
         private var cancellable: AnyCancellable?
         private var task: Task<Void, Never>?
+        private var task2: Task<Void, Never>?
 
         func request(_ demand: Subscribers.Demand) {
             guard demand > 0 else {
                 return
             }
-
-            cancellable = remoteImage.loadingState.sink(receiveValue: { [weak self] loadingState in
-                guard let self = self else {
-                    return
+            
+            let remote = remoteImage
+            nonisolated(unsafe) let subscriber = subscriber
+            
+            let operation: @Sendable () async -> Void = {
+                if #available(macOS 12.0, iOS 15, *) {
+                    let state = await remote.loadingState
+                    for await loadingState in state.values {
+                        switch loadingState {
+                        case .initial:
+                            break
+                            
+                        case .inProgress:
+                            break
+                            
+                        case .success(let transientImage):
+                            let _ = subscriber?.receive(transientImage.info)
+                            subscriber?.receive(completion: .finished)
+                            
+                        case .failure(let error):
+                            subscriber?.receive(completion: .failure(error))
+                        }
+                    }
+                } else {
+                    // Fallback on earlier versions
                 }
-
-                switch loadingState {
-                    case .initial:
-                        break
-
-                    case .inProgress:
-                        break
-
-                    case .success(let transientImage):
-                        let _ = self.subscriber?.receive(transientImage.info)
-                        self.subscriber?.receive(completion: .finished)
-
-                    case .failure(let error):
-                        self.subscriber?.receive(completion: .failure(error))
-                }
-            })
-
+//                await remote.loadingState.sink(receiveValue: { loadingState in
+//                    switch loadingState {
+//                        case .initial:
+//                            break
+//
+//                        case .inProgress:
+//                            break
+//
+//                        case .success(let transientImage):
+//                            let _ = subscriber?.receive(transientImage.info)
+//                            subscriber?.receive(completion: .finished)
+//
+//                        case .failure(let error):
+//                            subscriber?.receive(completion: .failure(error))
+//                    }
+//                })
+            }
+            
+            task2 = Task(operation: operation)
+//            cancellable = remote.loadingState.sink(receiveValue: { [weak self] loadingState in
+//                guard let self = self else {
+//                    return
+//                }
+//
+//                switch loadingState {
+//                    case .initial:
+//                        break
+//
+//                    case .inProgress:
+//                        break
+//
+//                    case .success(let transientImage):
+//                        let _ = self.subscriber?.receive(transientImage.info)
+//                        self.subscriber?.receive(completion: .finished)
+//
+//                    case .failure(let error):
+//                        self.subscriber?.receive(completion: .failure(error))
+//                }
+//            })
+            
             task = Task {
                 await withTaskCancellationHandler {
-                    await remoteImage.load()
+                    await remote.load()
                 } onCancel: {
-                    remoteImage.cancel()
+                    Task {
+                        await remote.cancel()
+                    }
                 }
             }
         }
 
         func cancel() {
-            remoteImage.cancel()
+            let remote = remoteImage
+            Task {
+                await remote.cancel()
+            }
             task?.cancel()
+            task2?.cancel()
             cancellable = nil
             task = nil
         }
     }
 
-    public func makeRemoteImage(url: URL, identifier: String?, options: URLImageOptions) -> RemoteImage {
+    @MainActor public func makeRemoteImage(url: URL, identifier: String?, options: URLImageOptions) -> RemoteImage {
         let inMemory = fileStore == nil
 
         let destination = makeDownloadDestination(inMemory: inMemory)
@@ -103,7 +155,7 @@ extension URLImageService {
         return RemoteImage(service: self, download: download, identifier: identifier, options: options)
     }
 
-    public func remoteImagePublisher(_ url: URL, identifier: String?, options: URLImageOptions = URLImageOptions()) -> RemoteImagePublisher {
+    @MainActor public func remoteImagePublisher(_ url: URL, identifier: String?, options: URLImageOptions = URLImageOptions()) -> RemoteImagePublisher {
         let remoteImage = makeRemoteImage(url: url, identifier: identifier, options: options)
         return RemoteImagePublisher(remoteImage: remoteImage)
     }

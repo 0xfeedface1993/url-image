@@ -9,7 +9,7 @@ import Foundation
 
 
 /// Information that describes an image in a store
-public struct URLImageStoreInfo {
+public struct URLImageStoreInfo: Sendable {
 
     /// Original URL of the image
     public var url: URL

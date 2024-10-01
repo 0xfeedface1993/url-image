@@ -12,10 +12,10 @@ import DownloadManager
 
 /// Options to control how the image is downloaded and stored
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public struct URLImageOptions {
+public struct URLImageOptions: Sendable {
 
     /// The `FetchPolicy` allows to choose between returning stored image or downloading the remote one.
-    public enum FetchPolicy: Hashable {
+    public enum FetchPolicy: Hashable, Sendable {
 
         /// Return an image from the store or download it
         ///

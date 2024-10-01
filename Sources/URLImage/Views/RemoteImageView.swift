@@ -68,7 +68,7 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             }
         }
         .onAppear {
-            if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.isSuccess {
+            if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
                 loadRemoteImage()
             }
         }
@@ -77,7 +77,7 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
                 remoteImage.cancel()
             }
         }
-        .onReceive(remoteImage.$slowLoadingState) { newValue in
+        .onReceive(remoteImage.slowLoadingState) { newValue in
             guard urlImageOptions.loadingAnimated else {
                 animateState = newValue
                 return
@@ -90,12 +90,13 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
     }
     
     private func loadRemoteImage() {
+        let remote = remoteImage
         Task {
             await withTaskCancellationHandler(operation: {
-                await remoteImage.load()
+                await remote.load()
             }, onCancel: {
                 Task {
-                    await remoteImage.cancel()
+                    await remote.cancel()
                 }
             })
         }

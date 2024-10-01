@@ -17,9 +17,8 @@ import MobileCoreServices
 import Cocoa
 #endif
 
-
 @available(iOS 14.0, tvOS 14.0, macOS 11.0, watchOS 7.0, *)
-public final class ImageDecoder: @unchecked Sendable {
+public final class ImageDecoder: Sendable {
 
     public struct DecodingOptions {
 
@@ -91,18 +90,18 @@ public final class ImageDecoder: @unchecked Sendable {
         setDataProvider(dataProvider, allDataReceived: true)
     }
 
-    public private(set) var isAllDataReceived: Bool = false
-
+//    public var isAllDataReceived: Bool = false
+    
     public func setData(_ data: Data, allDataReceived: Bool) {
-        assert(!isAllDataReceived)
-
-        isAllDataReceived = allDataReceived
+//        assert(!isAllDataReceived)
+//
+//        isAllDataReceived = allDataReceived
         CGImageSourceUpdateData(imageSource, data as CFData, allDataReceived)
     }
 
     public func setDataProvider(_ dataProvider: CGDataProvider, allDataReceived: Bool) {
-        assert(!isAllDataReceived)
-        isAllDataReceived = allDataReceived
+//        assert(!isAllDataReceived)
+//        isAllDataReceived = allDataReceived
         CGImageSourceUpdateDataProvider(imageSource, dataProvider, allDataReceived)
     }
 
@@ -125,8 +124,8 @@ public final class ImageDecoder: @unchecked Sendable {
                 fallthrough
             case .statusReadingHeader:
                 // Ragnaros yells: TOO SOON! You have awakened me TOO SOON, Executus!
-                return isAllDataReceived ? .error : .unknown
-
+//                return isAllDataReceived ? .error : .unknown
+                return .error
             case .statusIncomplete:
                 // WebCore checks isSupportedImageType here and returns error if not:
                 // if (!isSupportedImageType(uti))

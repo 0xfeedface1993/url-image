@@ -13,7 +13,7 @@ import DownloadManager
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 extension URLImageService {
 
-    func decode(result: DownloadResult, download: Download, identifier: String?, options: URLImageOptions) throws -> TransientImage {
+    func decode(result: DownloadResult, download: Download, identifier: String?, options: URLImageOptions) async throws -> TransientImage {
         switch result {
             case .data(let data):
 

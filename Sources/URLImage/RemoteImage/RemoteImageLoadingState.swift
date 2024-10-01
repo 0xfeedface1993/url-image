@@ -17,7 +17,7 @@ import Model
 /// This dual purpose allows the view to use switch statement in its `body` and return different view in each case.
 ///
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public enum RemoteImageLoadingState {
+public enum RemoteImageLoadingState: Sendable {
 
     case initial
 
@@ -29,8 +29,8 @@ public enum RemoteImageLoadingState {
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-extension RemoteImageLoadingState: Equatable {
-    public static func == (lhs: RemoteImageLoadingState, rhs: RemoteImageLoadingState) -> Bool {
+extension RemoteImageLoadingState: @preconcurrency Equatable {
+    @MainActor public static func == (lhs: RemoteImageLoadingState, rhs: RemoteImageLoadingState) -> Bool {
         switch (lhs, rhs) {
         case (.initial, .initial):
             return true

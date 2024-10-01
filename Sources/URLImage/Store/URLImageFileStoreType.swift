@@ -17,8 +17,8 @@ public protocol URLImageFileStoreType: URLImageStoreType {
     ///     - keys: An array of keys used to lookup the image
     ///     - open: A closure used to open the image file by delegating its decoding to the calling routine
     func getImage<T>(_ keys: [URLImageKey],
-                     open: @escaping (_ location: URL) throws -> T?,
-                     completion: @escaping (_ result: Result<T?, Swift.Error>) -> Void)
+                     open: @Sendable @escaping (_ location: URL) throws -> T?,
+                     completion: @Sendable @escaping (_ result: Result<T?, Swift.Error>) -> Void)
 
     /// Write image data to the store.
     func storeImageData(_ data: Data, info: URLImageStoreInfo)

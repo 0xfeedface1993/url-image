@@ -316,11 +316,7 @@ struct InstalledRemoteView<Content: View>: View {
         let image = service.makeRemoteImage(url: url, identifier: identifier, options: options)
         remoteImage = image
         if options.loadOptions.contains(.loadImmediately) {
-            await withTaskCancellationHandler {
-                await image.load()
-            } onCancel: {
-                image.cancel()
-            }
+            await image.load()
         }
     }
 }

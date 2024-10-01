@@ -15,7 +15,7 @@ import DownloadManager
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public struct TransientImage: Sendable {
 
-    public var cgImage: CGImage {
+    @MainActor public var cgImage: CGImage {
         proxy.cgImage
     }
 
@@ -42,7 +42,7 @@ public struct TransientImage: Sendable {
 
 /// Proxy used to decode image lazily
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public final class CGImageProxy: @unchecked Sendable {
+public final class CGImageProxy: Sendable {
 
     public let decoder: ImageDecoder
 
@@ -60,8 +60,8 @@ public final class CGImageProxy: @unchecked Sendable {
 
         return decodedCGImage!
     }
-
-    private var decodedCGImage: CGImage?
+    
+    nonisolated(unsafe) private var decodedCGImage: CGImage?
 
     private func decodeImage() {
         if let sizeForDrawing = maxPixelSize {

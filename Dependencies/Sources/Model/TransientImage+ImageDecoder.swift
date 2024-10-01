@@ -14,6 +14,10 @@ import DownloadManager
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public extension TransientImage {
+    
+    static func create(data: Data, maxPixelSize: CGSize?) async -> Self? {
+        Self.init(data: data, maxPixelSize: maxPixelSize)
+    }
 
     init?(data: Data, maxPixelSize: CGSize?) {
         let decoder = ImageDecoder()

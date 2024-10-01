@@ -12,6 +12,7 @@ import CoreGraphics
 public struct ImageInfo: Sendable {
 
     /// Decoded image
+    @MainActor
     public var cgImage: CGImage {
         proxy.cgImage
     }
