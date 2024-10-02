@@ -9,7 +9,7 @@ import Log
 import Foundation
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public struct DownloadAsyncTask: Sendable {
+public struct DownloadAsyncTask {
     let download: Download
     let coordinator: URLSessionCoordinator
     
@@ -19,7 +19,7 @@ public struct DownloadAsyncTask: Sendable {
     }
     
     @available(macOS 15.0, iOS 18.0, *)
-    func status() -> some AsyncSequence<DownloadInfo, DownloadError> {
+    func quickStart() -> some AsyncSequence<DownloadInfo, DownloadError> {
         coordinator
             .startDownload(download)
             .compactMap { next in
@@ -36,7 +36,7 @@ public struct DownloadAsyncTask: Sendable {
             }
     }
     
-    func statusSequece() -> some AsyncSequence {
+    func start() -> some AsyncSequence {
         coordinator
             .startDownload(download)
             .compactMap { next -> Result<DownloadInfo, DownloadError>? in

@@ -14,29 +14,35 @@ public actor DownloadTaskActor {
 
 /// `DownloadTask` is a wrapper around `URLSessionTask` that accumulates received data in a memory buffer.
 final class DownloadTask: Sendable {
-    @DownloadTaskActor
-    final class Observer {
-
+    final class Observer: Sendable {
+        @DownloadTaskActor
         private var receiveResponse: DownloadReceiveResponse?
 
+        @DownloadTaskActor
         func notifyReceiveResponse() {
             receiveResponse?(download)
         }
 
+        @DownloadTaskActor
         private var receiveData: DownloadReceiveData?
 
+        @DownloadTaskActor
         func notifyReceiveData(_ data: Data) {
             receiveData?(download, data)
         }
 
+        @DownloadTaskActor
         private var reportProgress: DownloadReportProgress?
 
+        @DownloadTaskActor
         func notifyReportProgress(_ progress: Float?) {
             reportProgress?(download, progress)
         }
 
+        @DownloadTaskActor
         private var completion: DownloadCompletion?
 
+        @DownloadTaskActor
         func notifyCompletion(_ result: Result<DownloadResult, DownloadError>) {
             completion?(download, result)
         }

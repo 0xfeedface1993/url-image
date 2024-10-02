@@ -22,10 +22,15 @@ final class URLSessionCoordinator: Sendable {
         let delegate = URLSessionDelegate()
         urlSession = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
 
-        Task { [weak self] in
+        Task { [weak self, weak delegate] in
+            guard let delegate else { return }
             await self?.observer(delegate)
             print("url session observer finished.")
         }
+    }
+    
+    deinit {
+        urlSession.invalidateAndCancel()
     }
     
     func observer(_ delegate: URLSessionDelegate) async {
@@ -122,7 +127,7 @@ final class URLSessionCoordinator: Sendable {
                 return
             }
 
-            let observer = await DownloadTask.Observer(download: download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion)
+            let observer = DownloadTask.Observer(download: download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion)
 
             let downloadTask = self.makeDownloadTask(for: download, withObserver: observer)
             self.registry[downloadTaskID] = downloadTask
@@ -134,12 +139,12 @@ final class URLSessionCoordinator: Sendable {
     func startDownload(_ download: Download) -> AsyncStream<DownloadStatus> {
         AsyncStream { continuation in
             let downloadTaskID = download.id.uuidString
-//            continuation.onTermination = { [weak self] termination in
-//                Task { @URLSessionCoordinatorActor in
-//                    guard let self else { return }
-//                    self.registry.removeValue(forKey: downloadTaskID)
-//                }
-//            }
+            continuation.onTermination = { termination in
+                Task { @URLSessionCoordinatorActor [weak self] in
+                    guard let self else { return }
+                    self.registry.removeValue(forKey: downloadTaskID)
+                }
+            }
             Task { @URLSessionCoordinatorActor in
 //                guard let self else { return }
                 log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
@@ -149,7 +154,7 @@ final class URLSessionCoordinator: Sendable {
                     return
                 }
 
-                let observer = await DownloadTask.Observer(download: download) { _ in
+                let observer = DownloadTask.Observer(download: download) { _ in
                     
                 } receiveData: { _, _ in
                     

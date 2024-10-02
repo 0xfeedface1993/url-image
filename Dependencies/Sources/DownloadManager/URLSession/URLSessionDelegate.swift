@@ -29,9 +29,9 @@ final class URLSessionDelegate : NSObject {
     func taskStateStream() -> AsyncStream<TaskState> {
         let id = UUID()
         return AsyncStream { continuation in
-            Task { @URLSessionActor in
-                continuations[id] = continuation
-                continuation.onTermination = { [weak self] _ in
+            Task { @URLSessionActor [weak self] in
+                self?.continuations[id] = continuation
+                continuation.onTermination = { _ in
                     Task { @URLSessionActor in
                         self?.continuations.removeValue(forKey: id)
                     }

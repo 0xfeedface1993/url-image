@@ -47,74 +47,77 @@ actor PublishersHolder {
     typealias Stream = AsyncThrowingStream<DownloadInfo, DownloadError>
     
     private var publishers: [URL: DownloadAsyncTask] = [:]
-    private var cancellables = [UUID: Stream.Continuation]()
+    private var subscribers = [UUID: Stream.Continuation]()
+    private var relations = [URL: Set<UUID>]()
     
     deinit {
-        let cache = cancellables.map(\.value)
-        cancellables.removeAll()
+        let cache = subscribers.map(\.value)
+        subscribers.removeAll()
         cache.forEach {
             $0.finish()
         }
     }
     
-    private func cache(_ uuid: UUID, continuation: Stream.Continuation) {
-        cancellables[uuid] = continuation
-        continuation.onTermination = { [weak self] _ in
-            Task {
+    private func cache(_ uuid: UUID, in url: URL, continuation: Stream.Continuation) {
+        continuation.onTermination = { _ in
+            Task { [weak self] in
                 await self?.uncache(uuid)
             }
         }
+        subscribers[uuid] = continuation
+        relations[url] = (relations[url] ?? Set<UUID>()).union([uuid])
     }
     
     private func uncache(_ uuid: UUID) {
-        cancellables.removeValue(forKey: uuid)
+        if let (url, sets) = relations.first(where: { $0.value.contains(uuid) }) {
+            relations[url] = sets.subtracting([uuid])
+        }
+        subscribers.removeValue(forKey: uuid)
+    }
+    
+    private func broadcast(to download: Download, with result: Result<DownloadInfo, DownloadError>) {
+        guard let downstreams = relations[download.url]?.compactMap({ subscribers[$0] }) else {
+            return
+        }
+        for continuation in downstreams {
+            switch result {
+            case .success(let info):
+                continuation.yield(info)
+                if case .completion = info {
+                    continuation.finish()
+                }
+            case .failure(let error):
+                continuation.finish(throwing: error)
+            }
+        }
     }
     
     func store(_ download: Download, coordinator: URLSessionCoordinator) -> Stream {
         let publisher: DownloadAsyncTask
+        let newTask: Bool
         if let current = publishers[download.url] {
             publisher = current
+            newTask = false
             print("use exists task for \(download.url)")
         } else {
             publisher = DownloadAsyncTask(download: download, coordinator: coordinator)
             publishers[download.url] = publisher
+            newTask = true
             print("create new publisher for \(download.url)")
         }
-        let uuid = download.id
-        
-        let action: @Sendable (Stream.Continuation) async -> Void = { [weak self] continuation in
-            guard let self else { return }
-            await self.cache(uuid, continuation: continuation)
-            do {
-                for try await item in publisher.statusSequece().compactMap({ $0 as? Result<DownloadInfo, DownloadError> }) {
-                    switch item {
-                    case .success(let info):
-                        continuation.yield(info)
-                        if case .completion = info {
-                            continuation.finish()
-                            return
+        return AsyncThrowingStream { continuation in
+            cache(download.id, in: download.url, continuation: continuation)
+            if newTask {
+                Task {
+                    do {
+                        for try await item in publisher.start().compactMap({ $0 as? Result<DownloadInfo, DownloadError> }) {
+                            broadcast(to: download, with: item)
                         }
-                    case .failure(let error):
-                        continuation.finish(throwing: error)
-                        return
+                    } catch {
+                        broadcast(to: download, with: .failure(error))
                     }
                 }
-                continuation.finish()
-            } catch {
-                continuation.finish(throwing: error)
             }
-        }
-        return AsyncThrowingStream { continuation in
-            Task {
-                await action(continuation)
-            }
-        }
-    }
-    
-    func pop(_ uuid: UUID) {
-        if let task = cancellables[uuid] {
-            cancellables.removeValue(forKey: uuid)
-            task.finish()
         }
     }
 }
