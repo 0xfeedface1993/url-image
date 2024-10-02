@@ -9,7 +9,7 @@ import Foundation
 
 
 /// General set of functions a store is expected to implement
-public protocol URLImageStoreType {
+public protocol URLImageStoreType: Sendable {
 
     func removeAllImages()
 

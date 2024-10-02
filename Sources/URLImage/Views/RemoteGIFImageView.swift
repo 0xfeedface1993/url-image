@@ -64,12 +64,14 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
                     inProgress(1.0)
                 }
             case .failure(let error):
-                failure(error, loadRemoteImage)
+                failure(error, {
+                    remoteImage.load()
+                })
             }
         }
         .onAppear {
             if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
-                loadRemoteImage()
+                remoteImage.load()
             }
         }
         .onDisappear {
@@ -95,30 +97,6 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
         }
     }
     
-    private func loadRemoteImage() {
-        let remote = remoteImage
-        Task {
-            await remote.load()
-        }
-    }
-    
-//    private func transientImage(_ pass: TransientImage) -> PlatformImage {
-//        if options.maxPixelSize == nil {
-//#if os(macOS)
-//            return gifImage(pass) ?? PlatformImage(cgImage: pass.cgImage, size: pass.info.size)
-//#else
-//            return gifImage(pass) ?? PlatformImage(cgImage: pass.cgImage)
-//#endif
-//        }
-//        let transient = TransientImage(decoder: pass.proxy.decoder, presentation: pass.presentation, maxPixelSize: options.maxPixelSize) ?? pass
-//        
-//#if os(macOS)
-//        return gifImage(transient) ?? PlatformImage(cgImage: pass.cgImage, size: pass.info.size)
-//#else
-//        return gifImage(transient) ?? PlatformImage(cgImage: pass.cgImage)
-//#endif
-//    }
-    
     private func load(_ maxPixelSize: CGSize?) async {
         guard let fileStore = urlImageService.fileStore else {
             print("fileStore missing")
@@ -143,7 +121,7 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
             return nil
         }
         
-        guard let value: TransientImage = memoryStore.getImage([.url(remoteImage.download.url)]) else {
+        guard let value: TransientImage = await memoryStore.getImage([.url(remoteImage.download.url)]) else {
             print("\(remoteImage.download.url) not cached in memory store")
             return nil
         }

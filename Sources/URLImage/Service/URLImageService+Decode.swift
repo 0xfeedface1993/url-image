@@ -24,7 +24,7 @@ extension URLImageService {
                 if shouldStore {
                     let info = URLImageStoreInfo(url: download.url, identifier: identifier, uti: transientImage.uti)
                     fileStore?.storeImageData(data, info: info)
-                    inMemoryStore?.store(transientImage, info: info)
+                    await inMemoryStore?.store(transientImage, info: info)
                 }
 
                 return transientImage
@@ -40,7 +40,7 @@ extension URLImageService {
                 if shouldStore {
                     let info = URLImageStoreInfo(url: download.url, identifier: identifier, uti: transientImage.uti)
                     fileStore?.moveImageFile(from: location, info: info)
-                    inMemoryStore?.store(transientImage, info: info)
+                    await inMemoryStore?.store(transientImage, info: info)
                 }
 
                 return transientImage

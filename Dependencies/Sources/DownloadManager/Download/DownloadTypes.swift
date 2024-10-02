@@ -32,3 +32,10 @@ public typealias DownloadReceiveResponse = @Sendable (_ download: Download) -> V
 public typealias DownloadReceiveData = @Sendable (_ download: Download, _ data: Data) -> Void
 public typealias DownloadReportProgress = @Sendable (_ download: Download, _ progress: Float?) -> Void
 public typealias DownloadCompletion = @Sendable (_ download: Download, _ result: Result<DownloadResult, DownloadError>) -> Void
+
+public enum DownloadStatus: Sendable {
+    case receiveResponse(download: Download)
+    case receiveData(download: Download, _ data: Data)
+    case reportProgress(download: Download, _ progress: Float?)
+    case completion(download: Download, _ result: Result<DownloadResult, DownloadError>)
+}

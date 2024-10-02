@@ -6,25 +6,33 @@
 //
 
 import Foundation
-import Combine
 import Log
+
+@globalActor
+public actor URLSessionCoordinatorActor {
+    public static let shared = URLSessionCoordinatorActor()
+}
 
 
 /// `URLSessionCoordinator` manages `URLSession` instance and forwards callbacks to responding `DownloadController` instances.
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-final class URLSessionCoordinator: @unchecked Sendable {
+final class URLSessionCoordinator: Sendable {
 
     init(urlSessionConfiguration: URLSessionConfiguration) {
         let delegate = URLSessionDelegate()
         urlSession = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
 
-        delegate
-            .onTaskDidCompleteWithError { [weak self] urlSessionTask, error in
-                guard let self = self else {
-                    return
-                }
-
-                self.async {
+        Task { [weak self] in
+            await self?.observer(delegate)
+            print("url session observer finished.")
+        }
+    }
+    
+    func observer(_ delegate: URLSessionDelegate) async {
+        for await state in delegate.taskStateStream() {
+            switch state {
+            case .didCompleteWithError(let urlSessionTask, let error):
+                Task { @URLSessionCoordinatorActor in
                     let downloadTaskID = urlSessionTask.taskDescription!
 
                     guard let downloadTask = self.registry[downloadTaskID] else {
@@ -41,30 +49,8 @@ final class URLSessionCoordinator: @unchecked Sendable {
                         downloadTask.complete()
                     }
                 }
-            }
-            .onDataTaskDidReceiveData { [weak self] urlSessionTask, data in
-                guard let self = self else {
-                    return
-                }
-
-                self.async {
-                    let downloadTaskID = urlSessionTask.taskDescription!
-
-                    guard let downloadTask = self.registry[downloadTaskID] else {
-                        // This can happen when the task was cancelled
-                        return
-                    }
-
-                    downloadTask.receive(data: data)
-                }
-            }
-            .onDataTaskDidReceiveResponse { [weak self] task, response, completion in
-                guard let self = self else {
-                    completion(.cancel)
-                    return
-                }
-
-                self.async {
+            case .didReceiveResponse(let task, let response, let completion):
+                Task { @URLSessionCoordinatorActor in
                     let downloadTaskID = task.taskDescription!
 
                     guard let downloadTask = self.registry[downloadTaskID] else {
@@ -76,13 +62,20 @@ final class URLSessionCoordinator: @unchecked Sendable {
                     downloadTask.receive(response: response)
                     completion(.allow)
                 }
-            }
-            .onDownloadTaskDidFinishDownloadingTo { [weak self] task, location in
-                guard let self = self else {
-                    return
-                }
+            case .didReceiveData(let urlSessionTask, let data):
+                Task { @URLSessionCoordinatorActor [weak self] in
+                    guard let self else { return }
+                    let downloadTaskID = urlSessionTask.taskDescription!
 
-                self.sync {
+                    guard let downloadTask = self.registry[downloadTaskID] else {
+                        // This can happen when the task was cancelled
+                        return
+                    }
+
+                    downloadTask.receive(data: data)
+                }
+            case .didFinishDownloadingTo(let task, let location):
+                await Task { @URLSessionCoordinatorActor in
                     let downloadTaskID = task.taskDescription!
 
                     guard let downloadTask = self.registry[downloadTaskID] else {
@@ -97,15 +90,10 @@ final class URLSessionCoordinator: @unchecked Sendable {
 
                     let destination = URL(fileURLWithPath: path)
                     try? FileManager.default.moveItem(at: location, to: destination)
-                }
-            }
-            .onDownloadTaskDidWriteData { [weak self] task, _, totalBytesWritten, totalBytesExpectedToWrite in
-                guard let self = self else {
-                    return
-                }
-
-                self.async {
-                    let downloadTaskID = task.taskDescription!
+                }.value
+            case .downloadTaskDidWriteData(let downloadTask, _, let totalBytesWritten, let totalBytesExpectedToWrite):
+                Task { @URLSessionCoordinatorActor in
+                    let downloadTaskID = downloadTask.taskDescription!
 
                     guard let downloadTask = self.registry[downloadTaskID] else {
                         // This can happen when the task was cancelled
@@ -115,6 +103,7 @@ final class URLSessionCoordinator: @unchecked Sendable {
                     downloadTask.downloadProgress(received: totalBytesWritten, expected: totalBytesExpectedToWrite)
                 }
             }
+        }
     }
 
     func startDownload(_ download: Download,
@@ -122,7 +111,8 @@ final class URLSessionCoordinator: @unchecked Sendable {
                        receiveData: @escaping DownloadReceiveData,
                        reportProgress: @escaping DownloadReportProgress,
                        completion: @escaping DownloadCompletion) {
-        async {
+        Task { @URLSessionCoordinatorActor [weak self] in
+            guard let self else { return }
             log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
 
             let downloadTaskID = download.id.uuidString
@@ -132,7 +122,7 @@ final class URLSessionCoordinator: @unchecked Sendable {
                 return
             }
 
-            let observer = DownloadTask.Observer(download: download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion)
+            let observer = await DownloadTask.Observer(download: download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion)
 
             let downloadTask = self.makeDownloadTask(for: download, withObserver: observer)
             self.registry[downloadTaskID] = downloadTask
@@ -140,20 +130,62 @@ final class URLSessionCoordinator: @unchecked Sendable {
             downloadTask.urlSessionTask.resume()
         }
     }
+    
+    func startDownload(_ download: Download) -> AsyncStream<DownloadStatus> {
+        AsyncStream { continuation in
+            let downloadTaskID = download.id.uuidString
+//            continuation.onTermination = { [weak self] termination in
+//                Task { @URLSessionCoordinatorActor in
+//                    guard let self else { return }
+//                    self.registry.removeValue(forKey: downloadTaskID)
+//                }
+//            }
+            Task { @URLSessionCoordinatorActor in
+//                guard let self else { return }
+                log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
+
+                guard self.registry[downloadTaskID] == nil else {
+                    assertionFailure("Can not start \(download) twice")
+                    return
+                }
+
+                let observer = await DownloadTask.Observer(download: download) { _ in
+                    
+                } receiveData: { _, _ in
+                    
+                } reportProgress: { _, progress in
+                    continuation.yield(.reportProgress(download: download, progress))
+                } completion: { download, result in
+                    continuation.yield(.completion(download: download, result))
+                    continuation.finish()
+                }
+                
+                let downloadTask = self.makeDownloadTask(for: download, withObserver: observer)
+                self.registry[downloadTaskID] = downloadTask
+
+                downloadTask.urlSessionTask.resume()
+            }
+        }
+    }
 
     func cancelDownload(_ download: Download) {
-        async {
-            log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
-
-            let downloadTaskID = download.id.uuidString
-
-            guard let downloadTask = self.registry[downloadTaskID] else {
-                return
-            }
-
-            downloadTask.urlSessionTask.cancel()
-            self.registry[downloadTaskID] = nil
+        Task { @URLSessionCoordinatorActor [weak self] in
+            self?.cancel(download)
         }
+    }
+    
+    @URLSessionCoordinatorActor
+    func cancel(_ download: Download) {
+        log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
+
+        let downloadTaskID = download.id.uuidString
+
+        guard let downloadTask = self.registry[downloadTaskID] else {
+            return
+        }
+
+        downloadTask.urlSessionTask.cancel()
+        self.registry[downloadTaskID] = nil
     }
 
     // MARK: - Private
@@ -180,15 +212,6 @@ final class URLSessionCoordinator: @unchecked Sendable {
 
     private typealias DownloadTaskID = String
 
+    @URLSessionCoordinatorActor
     private var registry: [DownloadTaskID: DownloadTask] = [:]
-
-    private let serialQueue = DispatchQueue(label: "URLSessionCoordinator.serialQueue")
-
-    private func async(_ closure: @Sendable @escaping () -> Void) {
-        serialQueue.async(execute: closure)
-    }
-
-    private func sync(_ closure: () -> Void) {
-        serialQueue.sync(execute: closure)
-    }
 }

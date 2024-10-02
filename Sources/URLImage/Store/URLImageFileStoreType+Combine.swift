@@ -7,31 +7,13 @@
 
 import Foundation
 import CoreGraphics
-import Combine
 import Model
-
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 extension URLImageFileStoreType {
-
-    func getImagePublisher(_ keys: [URLImageKey], maxPixelSize: CGSize?) -> AnyPublisher<TransientImage?, Swift.Error> {
-        Future<TransientImage?, Swift.Error> { promise in
-            nonisolated(unsafe) let promised = promise
-            self.getImage(keys) { location -> TransientImage in
-                guard let transientImage = TransientImage(location: location, maxPixelSize: maxPixelSize) else {
-                    throw URLImageError.decode
-                }
-                return transientImage
-            }
-            completion: { result in
-                promised(result)
-            }
-        }.eraseToAnyPublisher()
-    }
-    
     func getImage(_ keys: [URLImageKey], maxPixelSize: CGSize?) async throws -> TransientImage? {
         try await withCheckedThrowingContinuation { continuation in
-            getImage(keys) { location -> TransientImage in
+            getImage(keys) { location -> TransientImage? in
                 guard let transientImage = TransientImage(location: location, maxPixelSize: maxPixelSize) else {
                     throw URLImageError.decode
                 }

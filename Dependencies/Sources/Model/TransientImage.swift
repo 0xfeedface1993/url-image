@@ -10,12 +10,17 @@ import ImageIO
 import ImageDecoder
 import DownloadManager
 
+@globalActor
+public actor URLImageInMemoryStoreActor {
+    public static var shared = URLImageInMemoryStoreActor()
+}
 
 /// Temporary representation used after decoding an image from data or file on disk and before creating an image object for display.
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public struct TransientImage: Sendable {
 
-    @MainActor public var cgImage: CGImage {
+    @MainActor
+    public var cgImage: CGImage {
         proxy.cgImage
     }
 

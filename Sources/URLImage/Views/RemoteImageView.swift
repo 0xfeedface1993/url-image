@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 import Model
 
 
@@ -62,14 +61,14 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
                     .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             case .failure(let error):
                 failure(error) {
-                    loadRemoteImage()
+                    remoteImage.load()
                 }
                 .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             }
         }
         .onAppear {
             if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
-                loadRemoteImage()
+                remoteImage.load()
             }
         }
         .onDisappear {
@@ -86,19 +85,6 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             withAnimation(.smooth) {
                 animateState = newValue
             }
-        }
-    }
-    
-    private func loadRemoteImage() {
-        let remote = remoteImage
-        Task {
-            await withTaskCancellationHandler(operation: {
-                await remote.load()
-            }, onCancel: {
-                Task {
-                    await remote.cancel()
-                }
-            })
         }
     }
 }

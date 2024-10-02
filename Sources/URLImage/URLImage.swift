@@ -312,11 +312,11 @@ struct InstalledRemoteView<Content: View>: View {
         }
     }
     
-    private func inital() async {
+    private func inital() {
         let image = service.makeRemoteImage(url: url, identifier: identifier, options: options)
         remoteImage = image
         if options.loadOptions.contains(.loadImmediately) {
-            await image.load()
+            image.load()
         }
     }
 }
