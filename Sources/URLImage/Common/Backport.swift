@@ -13,7 +13,7 @@ struct Backport<Content: View> {
 }
 
 extension View {
-    nonisolated var backport: Backport<Self> {
+    var backport: Backport<Self> {
         Backport(content: self)
     }
 }

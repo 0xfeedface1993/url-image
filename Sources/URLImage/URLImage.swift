@@ -30,6 +30,8 @@ public struct URLImage<Empty, InProgress, Failure, Content> : View where Empty :
     ///
     /// Note: do not use sensitive information as identifier, the cache is stored in a non-encrypted database on disk.
     let identifier: String?
+    
+    @State private var lazyImage: Image?
 
     public var body: some View {
         InstalledRemoteView(service: service, url: url, identifier: identifier, options: urlImageOptions) { remoteImage in
@@ -45,14 +47,14 @@ public struct URLImage<Empty, InProgress, Failure, Content> : View where Empty :
     private let empty: () -> Empty
     private let inProgress: (_ progress: Float?) -> InProgress
     private let failure: (_ error: Error, _ retry: @escaping () -> Void) -> Failure
-    private let content: (_ image: TransientImage) -> Content
+    private let content: (_ image: TransientImage, _ cgImage: CGImage?) -> Content
 
     private init(_ url: URL,
                  identifier: String?,
                  @ViewBuilder empty: @escaping () -> Empty,
                  @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
                  @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
-                 @ViewBuilder content: @escaping (_ transientImage: TransientImage) -> Content) {
+                 @ViewBuilder content: @escaping (_ transientImage: TransientImage, _ cgImage: CGImage?) -> Content) {
 
         self.url = url
         self.identifier = identifier
@@ -79,9 +81,9 @@ public extension URLImage {
                   empty: empty,
                   inProgress: inProgress,
                   failure: failure,
-                  content: { (transientImage: TransientImage) -> Content in
-                      content(transientImage.image)
-                  })
+                  content: { (transientImage: TransientImage, cgImage: CGImage?) -> Content in
+            content(Image(decorative: cgImage!, scale: 1.0, orientation: Image.Orientation(transientImage.cgOrientation)))
+        })
     }
 
     init(_ url: URL,
@@ -96,8 +98,8 @@ public extension URLImage {
                   empty: empty,
                   inProgress: inProgress,
                   failure: failure,
-                  content: { (transientImage: TransientImage) -> Content in
-                      content(transientImage.image, transientImage.info)
+                  content: { (transientImage: TransientImage, cgImage: CGImage?) -> Content in
+                      content(Image(decorative: cgImage!, scale: 1.0, orientation: Image.Orientation(transientImage.cgOrientation)), transientImage.info)
                   })
     }
 }

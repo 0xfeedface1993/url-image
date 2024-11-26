@@ -38,7 +38,6 @@ public final class RemoteImage : ObservableObject, Sendable {
     let options: URLImageOptions
     
     @RemoteImageActor var stateCancellable: AnyCancellable?
-    @RemoteImageActor var downloadTask: Task<Void, Never>?
 
     init(service: URLImageService, download: Download, identifier: String?, options: URLImageOptions) {
         self.service = service
@@ -53,10 +52,8 @@ public final class RemoteImage : ObservableObject, Sendable {
     
     private func stateBind() {
         let cancellable = loadingStatePublisher
-            .sink(receiveValue: { state in
-                Task { @MainActor [weak self] in
-                    self?.slowLoadingState.send(state)
-                }
+            .sink(receiveValue: { [weak self] state in
+                self?.notifyState(state)
             })
         
         Task { @RemoteImageActor in
@@ -65,8 +62,7 @@ public final class RemoteImage : ObservableObject, Sendable {
     }
 
     deinit {
-//        stateCancellable?.cancel()
-//        downloadTask?.cancel()
+        stateCancellable?.cancel()
         log_debug(nil, #function, download.url.absoluteString, detail: log_detailed)
     }
 
@@ -74,7 +70,7 @@ public final class RemoteImage : ObservableObject, Sendable {
 
     /// External loading state used to update the view
     let loadingState = CurrentValueSubject<LoadingState, Never>(.initial)
-    @MainActor let slowLoadingState = CurrentValueSubject<LoadingState, Never>(.initial)
+    let slowLoadingState = CurrentValueSubject<LoadingState, Never>(.initial)
     
     private var progressStatePublisher: AnyPublisher<RemoteImageLoadingState, Never> {
         loadingState
@@ -159,29 +155,23 @@ public final class RemoteImage : ObservableObject, Sendable {
             log_debug(self, #function, "Cancel load for: \(download.url)", detail: log_normal)
 
             isLoading = false
-
-            // Cancel publishers
-            for cancellable in cancellables {
-                cancellable.cancel()
-            }
-
-            cancellables.removeAll()
-
+            
             delayedReturnStored?.cancel()
             delayedReturnStored = nil
 
             delayedDownload?.cancel()
             delayedDownload = nil
-            
-    //        downloadTask?.cancel()
-            downloadTask?.cancel()
-            downloadTask = nil
+        }
+    }
+    
+    private func notifyState(_ state: LoadingState) {
+        Task { @MainActor in
+            self.slowLoadingState.send(state)
         }
     }
 
     /// Internal loading state
     @RemoteImageActor private var isLoading: Bool = false
-    @RemoteImageActor private var cancellables = Set<AnyCancellable>()
     @RemoteImageActor private var delayedReturnStored: DispatchWorkItem?
     @RemoteImageActor private var delayedDownload: DispatchWorkItem?
 }

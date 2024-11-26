@@ -73,11 +73,15 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
             if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
                 remoteImage.load()
             }
+            Task {
+                await prepare(self.animateState)
+            }
         }
         .onDisappear {
             if loadOptions.contains(.cancelOnDisappear) {
                 remoteImage.cancel()
             }
+//            image = nil
         }
         .onReceive(remoteImage.slowLoadingState) { newValue in
             Task {

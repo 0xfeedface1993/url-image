@@ -8,10 +8,10 @@
 import Foundation
 import Log
 
-@globalActor
-public actor URLSessionActor {
-    public static let shared = URLSessionActor()
-}
+//@globalActor
+//public actor URLSessionActor {
+//    public static let shared = URLSessionActor()
+//}
 
 final class URLSessionDelegate : NSObject {
     // 定义任务的状态枚举
@@ -23,35 +23,42 @@ final class URLSessionDelegate : NSObject {
         case downloadTaskDidWriteData(downloadTask: URLSessionDownloadTask, bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64)
     }
     
-    @URLSessionActor
-    private var continuations: [UUID: AsyncStream<TaskState>.Continuation] = [:]
+//    @URLSessionActor
+//    private var continuations: [UUID: AsyncStream<TaskState>.Continuation] = [:]
     
-    func taskStateStream() -> AsyncStream<TaskState> {
-        let id = UUID()
-        return AsyncStream { continuation in
-            Task { @URLSessionActor [weak self] in
-                self?.continuations[id] = continuation
-                continuation.onTermination = { _ in
-                    Task { @URLSessionActor in
-                        self?.continuations.removeValue(forKey: id)
-                    }
-                }
-            }
-        }
+    let onTaskStateUpdate: (@Sendable (TaskState) -> Void)?
+    
+    init(onTaskStateUpdate: (@Sendable (TaskState) -> Void)?) {
+        self.onTaskStateUpdate = onTaskStateUpdate
     }
+    
+//    func taskStateStream() -> AsyncStream<TaskState> {
+//        let id = UUID()
+//        return AsyncStream { continuation in
+//            Task { @URLSessionActor [weak self] in
+//                self?.continuations[id] = continuation
+//                continuation.onTermination = { _ in
+//                    Task { @URLSessionActor in
+//                        self?.continuations.removeValue(forKey: id)
+//                    }
+//                }
+//            }
+//        }
+//    }
     
     private func broadcast(_ state: TaskState) {
-        Task { @URLSessionActor [weak self] in
-            guard let self else { return }
-            for (_, continuation) in self.continuations {
-                continuation.yield(state)
-            }
-        }
+//        Task { @URLSessionActor [weak self] in
+//            guard let self else { return }
+//            for (_, continuation) in self.continuations {
+//                continuation.yield(state)
+//            }
+//        }
+        onTaskStateUpdate?(state)
     }
     
-    deinit {
-        continuations.removeAll()
-    }
+//    deinit {
+//        continuations.removeAll()
+//    }
 }
 
 

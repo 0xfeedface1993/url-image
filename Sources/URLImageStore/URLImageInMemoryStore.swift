@@ -9,7 +9,7 @@ import Foundation
 import URLImage
 import Model
 
-public final class URLImageInMemoryStore {
+public final class URLImageInMemoryStore: Sendable {
 
     public init() {
     }

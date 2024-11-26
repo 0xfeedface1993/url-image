@@ -6,6 +6,7 @@
 //
 
 import Model
+import CoreGraphics
 
 
 /// The state of the loading process.
@@ -26,6 +27,31 @@ public enum RemoteImageLoadingState: Sendable {
     case success(_ value: TransientImage)
 
     case failure(_ error: Error)
+}
+
+@available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
+public enum RemoteImageLoadingCacheState: Sendable {
+
+    case initial
+
+    case inProgress(_ progress: Float?)
+
+    case success(_ value: TransientImage, _ cgImage: CGImage?)
+
+    case failure(_ error: Error)
+    
+    public static func load(_ state: RemoteImageLoadingState) async -> Self {
+        switch state {
+        case .initial:
+            return .initial
+        case .inProgress(let value):
+            return  .inProgress(value)
+        case .success(let transitImage):
+            return .success(transitImage, await transitImage.cgImage)
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)

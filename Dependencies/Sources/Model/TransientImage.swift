@@ -19,9 +19,10 @@ public actor URLImageInMemoryStoreActor {
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public struct TransientImage: Sendable {
 
-    @MainActor
     public var cgImage: CGImage {
-        proxy.cgImage
+        get async {
+            await proxy.cgImage
+        }
     }
 
     public let info: ImageInfo
@@ -45,6 +46,11 @@ public struct TransientImage: Sendable {
     public let proxy: CGImageProxy
 }
 
+@globalActor
+actor CGImageProxyActor {
+    static var shared = CGImageProxyActor()
+}
+
 /// Proxy used to decode image lazily
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public final class CGImageProxy: Sendable {
@@ -58,6 +64,7 @@ public final class CGImageProxy: Sendable {
         self.maxPixelSize = maxPixelSize
     }
 
+    @CGImageProxyActor
     var cgImage: CGImage {
         if decodedCGImage == nil {
             decodeImage()
@@ -66,8 +73,10 @@ public final class CGImageProxy: Sendable {
         return decodedCGImage!
     }
     
-    nonisolated(unsafe) private var decodedCGImage: CGImage?
+    @CGImageProxyActor
+    private var decodedCGImage: CGImage?
 
+    @CGImageProxyActor
     private func decodeImage() {
         if let sizeForDrawing = maxPixelSize {
             let decodingOptions = ImageDecoder.DecodingOptions(mode: .asynchronous, sizeForDrawing: sizeForDrawing)

@@ -19,96 +19,17 @@ public actor URLSessionCoordinatorActor {
 final class URLSessionCoordinator: Sendable {
 
     init(urlSessionConfiguration: URLSessionConfiguration) {
-        let delegate = URLSessionDelegate()
-        urlSession = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
-
-        Task { [weak self, weak delegate] in
-            guard let delegate else { return }
-            await self?.observer(delegate)
-            print("url session observer finished.")
+        let coordinator = self._coordinator
+        let delegate = URLSessionDelegate { [weak coordinator] state in
+            Task {
+                await coordinator?.notify(state)
+            }
         }
+        urlSession = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
     }
     
     deinit {
         urlSession.invalidateAndCancel()
-    }
-    
-    func observer(_ delegate: URLSessionDelegate) async {
-        for await state in delegate.taskStateStream() {
-            switch state {
-            case .didCompleteWithError(let urlSessionTask, let error):
-                Task { @URLSessionCoordinatorActor in
-                    let downloadTaskID = urlSessionTask.taskDescription!
-
-                    guard let downloadTask = self.registry[downloadTaskID] else {
-                        // This can happen when the task was cancelled
-                        return
-                    }
-
-                    self.registry[downloadTaskID] = nil
-
-                    if let error = error {
-                        downloadTask.complete(withError: error)
-                    }
-                    else {
-                        downloadTask.complete()
-                    }
-                }
-            case .didReceiveResponse(let task, let response, let completion):
-                Task { @URLSessionCoordinatorActor in
-                    let downloadTaskID = task.taskDescription!
-
-                    guard let downloadTask = self.registry[downloadTaskID] else {
-                        // This can happen when the task was cancelled
-                        completion(.cancel)
-                        return
-                    }
-
-                    downloadTask.receive(response: response)
-                    completion(.allow)
-                }
-            case .didReceiveData(let urlSessionTask, let data):
-                Task { @URLSessionCoordinatorActor [weak self] in
-                    guard let self else { return }
-                    let downloadTaskID = urlSessionTask.taskDescription!
-
-                    guard let downloadTask = self.registry[downloadTaskID] else {
-                        // This can happen when the task was cancelled
-                        return
-                    }
-
-                    downloadTask.receive(data: data)
-                }
-            case .didFinishDownloadingTo(let task, let location):
-                await Task { @URLSessionCoordinatorActor in
-                    let downloadTaskID = task.taskDescription!
-
-                    guard let downloadTask = self.registry[downloadTaskID] else {
-                        // This can happen when the task was cancelled
-                        return
-                    }
-
-                    guard case Download.Destination.onDisk(let path) = downloadTask.download.destination else {
-                        assertionFailure("Expected file path destination for download task")
-                        return
-                    }
-
-                    let destination = URL(fileURLWithPath: path)
-                    try? FileManager.default.moveItem(at: location, to: destination)
-                }.value
-            case .downloadTaskDidWriteData(let downloadTask, _, let totalBytesWritten, let totalBytesExpectedToWrite):
-                Task { @URLSessionCoordinatorActor in
-                    let downloadTaskID = downloadTask.taskDescription!
-
-                    guard let downloadTask = self.registry[downloadTaskID] else {
-                        // This can happen when the task was cancelled
-                        return
-                    }
-
-                    downloadTask.downloadProgress(received: totalBytesWritten, expected: totalBytesExpectedToWrite)
-                }
-            }
-        }
     }
 
     func startDownload(_ download: Download,
@@ -116,70 +37,215 @@ final class URLSessionCoordinator: Sendable {
                        receiveData: @escaping DownloadReceiveData,
                        reportProgress: @escaping DownloadReportProgress,
                        completion: @escaping DownloadCompletion) {
-        Task { @URLSessionCoordinatorActor [weak self] in
-            guard let self else { return }
-            log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
-
-            let downloadTaskID = download.id.uuidString
-
-            guard self.registry[downloadTaskID] == nil else {
-                assertionFailure("Can not start \(download) twice")
-                return
-            }
-
-            let observer = DownloadTask.Observer(download: download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion)
-
-            let downloadTask = self.makeDownloadTask(for: download, withObserver: observer)
-            self.registry[downloadTaskID] = downloadTask
-
-            downloadTask.urlSessionTask.resume()
+        let coodinator = self._coordinator
+        let session = self.urlSession
+        Task { @URLSessionCoordinatorActor in
+            await coodinator.startDownload(download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion, makeDownloadTask: { download, observer in
+                makeDownloadTask(for: download, urlSession: session, withObserver: observer)
+            })
         }
     }
     
     func startDownload(_ download: Download) -> AsyncStream<DownloadStatus> {
-        AsyncStream { continuation in
+        let coodinator = self._coordinator
+        let session = self.urlSession
+        return AsyncStream { continuation in
             let downloadTaskID = download.id.uuidString
-            continuation.onTermination = { termination in
-                Task { @URLSessionCoordinatorActor [weak self] in
-                    guard let self else { return }
-                    self.registry.removeValue(forKey: downloadTaskID)
+            continuation.onTermination = { [weak coodinator] termination in
+                Task { @URLSessionCoordinatorActor in
+                    await coodinator?.completed(downloadTaskID)
                 }
             }
-            Task { @URLSessionCoordinatorActor in
-//                guard let self else { return }
-                log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
-
-                guard self.registry[downloadTaskID] == nil else {
-                    assertionFailure("Can not start \(download) twice")
-                    return
-                }
-
-                let observer = DownloadTask.Observer(download: download) { _ in
-                    
-                } receiveData: { _, _ in
-                    
-                } reportProgress: { _, progress in
-                    continuation.yield(.reportProgress(download: download, progress))
-                } completion: { download, result in
-                    continuation.yield(.completion(download: download, result))
-                    continuation.finish()
-                }
-                
-                let downloadTask = self.makeDownloadTask(for: download, withObserver: observer)
-                self.registry[downloadTaskID] = downloadTask
-
-                downloadTask.urlSessionTask.resume()
+            Task { @URLSessionCoordinatorActor [weak coodinator] in
+                await coodinator?.startDownload(download, continuation: continuation, downloadTaskID: downloadTaskID, makeDownloadTask: { download, observer in
+                    makeDownloadTask(for: download, urlSession: session, withObserver: observer)
+                })
             }
         }
     }
 
     func cancelDownload(_ download: Download) {
-        Task { @URLSessionCoordinatorActor [weak self] in
-            self?.cancel(download)
+        Task { @URLSessionCoordinatorActor in
+            await _coordinator.cancel(download)
         }
     }
     
-    @URLSessionCoordinatorActor
+//    func taskStateStream() -> AsyncStream<URLSessionDelegate.TaskState> {
+//        let id = UUID()
+//        let coordinator = self._coordinator
+//        return AsyncStream { continuation in
+//            Task {
+//                await coordinator.store(continuation, id: id)
+//            }
+//        }
+//    }
+
+    // MARK: - Private
+
+    private let urlSession: URLSession
+    private typealias DownloadTaskID = String
+
+//    @URLSessionCoordinatorActor
+//    private var registry: [DownloadTaskID: DownloadTask] = [:]
+    private let _coordinator = RealURLSessionCoordinator()
+}
+
+fileprivate actor RealURLSessionCoordinator {
+    typealias DownloadTaskID = String
+    private var registry: [DownloadTaskID: DownloadTask] = [:]
+//    private var continuations: [UUID: AsyncStream<URLSessionDelegate.TaskState>.Continuation] = [:]
+    
+    deinit {
+        registry.removeAll()
+        
+        print("deinit RealURLSessionCoordinator")
+//        continuations.removeAll()
+    }
+    
+    func notify(_ state: URLSessionDelegate.TaskState) {
+        switch state {
+        case .didCompleteWithError(let downloadTask, let error):
+            for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
+                update(state, with: id)
+            }
+        case .didReceiveResponse(let downloadTask, let response, let completionHandler):
+            for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
+                update(state, with: id)
+            }
+        case .didReceiveData(let downloadTask, let data):
+            for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
+                update(state, with: id)
+            }
+        case .didFinishDownloadingTo(let downloadTask, let location):
+            for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
+                update(state, with: id)
+            }
+        case .downloadTaskDidWriteData(let downloadTask, let bytesWritten, let totalBytesWritten, let totalBytesExpectedToWrite):
+            for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
+                update(state, with: id)
+            }
+        }
+    }
+    
+//    func store(_ continuation: AsyncStream<URLSessionDelegate.TaskState>.Continuation, id: UUID) {
+//        continuations[id] = continuation
+//        continuation.onTermination = { [weak self] _ in
+//            Task {
+//                await self?.unstore(id)
+//            }
+//        }
+//    }
+//    
+//    func unstore(_ id: UUID) {
+//        continuations.removeValue(forKey: id)
+//    }
+    
+    func update(_ state: URLSessionDelegate.TaskState, with downloadTaskID: DownloadTaskID) {
+        switch state {
+        case .didCompleteWithError(let urlSessionTask, let error):
+            guard let downloadTask = self.registry[downloadTaskID] else {
+                // This can happen when the task was cancelled
+                return
+            }
+
+            self.registry[downloadTaskID] = nil
+
+            if let error = error {
+                downloadTask.complete(withError: error)
+            }
+            else {
+                downloadTask.complete()
+            }
+        case .didReceiveResponse(let task, let response, let completion):
+            guard let downloadTask = self.registry[downloadTaskID] else {
+                // This can happen when the task was cancelled
+                completion(.cancel)
+                return
+            }
+
+            downloadTask.receive(response: response)
+            completion(.allow)
+        case .didReceiveData(let urlSessionTask, let data):
+            guard let downloadTask = self.registry[downloadTaskID] else {
+                // This can happen when the task was cancelled
+                return
+            }
+
+            downloadTask.receive(data: data)
+        case .didFinishDownloadingTo(let task, let location):
+            guard let downloadTask = self.registry[downloadTaskID] else {
+                // This can happen when the task was cancelled
+                return
+            }
+
+            guard case Download.Destination.onDisk(let path) = downloadTask.download.destination else {
+                assertionFailure("Expected file path destination for download task")
+                return
+            }
+
+            let destination = URL(fileURLWithPath: path)
+            try? FileManager.default.moveItem(at: location, to: destination)
+        case .downloadTaskDidWriteData(let downloadTask, _, let totalBytesWritten, let totalBytesExpectedToWrite):
+            guard let downloadTask = self.registry[downloadTaskID] else {
+                // This can happen when the task was cancelled
+                return
+            }
+
+            downloadTask.downloadProgress(received: totalBytesWritten, expected: totalBytesExpectedToWrite)
+        }
+    }
+    
+    func startDownload(_ download: Download,
+                       receiveResponse: @escaping DownloadReceiveResponse,
+                       receiveData: @escaping DownloadReceiveData,
+                       reportProgress: @escaping DownloadReportProgress,
+                       completion: @escaping DownloadCompletion, makeDownloadTask: @escaping @Sendable (Download, DownloadTask.Observer) -> DownloadTask) {
+        log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
+
+        let downloadTaskID = download.id.uuidString
+
+        guard self.registry[downloadTaskID] == nil else {
+            assertionFailure("Can not start \(download) twice")
+            return
+        }
+
+        let observer = DownloadTask.Observer(download: download, receiveResponse: receiveResponse, receiveData: receiveData, reportProgress: reportProgress, completion: completion)
+
+        let downloadTask = makeDownloadTask(download, observer)
+        self.registry[downloadTaskID] = downloadTask
+
+        downloadTask.urlSessionTask.resume()
+    }
+    
+    func completed(_ id: DownloadTaskID) {
+        self.registry.removeValue(forKey: id)
+    }
+    
+    func startDownload(_ download: Download, continuation: AsyncStream<DownloadStatus>.Continuation, downloadTaskID: DownloadTaskID, makeDownloadTask: @escaping @Sendable (Download, DownloadTask.Observer) -> DownloadTask) {
+        log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
+
+        guard self.registry[downloadTaskID] == nil else {
+            assertionFailure("Can not start \(download) twice")
+            return
+        }
+
+        let observer = DownloadTask.Observer(download: download) { _ in
+            
+        } receiveData: { _, _ in
+            
+        } reportProgress: { _, progress in
+            continuation.yield(.reportProgress(download: download, progress))
+        } completion: { download, result in
+            continuation.yield(.completion(download: download, result))
+            continuation.finish()
+        }
+        
+        let downloadTask = makeDownloadTask(download, observer)
+        self.registry[downloadTaskID] = downloadTask
+
+        downloadTask.urlSessionTask.resume()
+    }
+    
     func cancel(_ download: Download) {
         log_debug(self, #function, "download.id = \(download.id), download.url: \(download.url)", detail: log_normal)
 
@@ -192,31 +258,36 @@ final class URLSessionCoordinator: Sendable {
         downloadTask.urlSessionTask.cancel()
         self.registry[downloadTaskID] = nil
     }
+    
+//    func observer(_ delegate: AsyncStream<URLSessionDelegate.TaskState>) async {
+//        for await state in delegate {
+//            switch state {
+//            case .didFinishDownloadingTo(let task, let location):
+//                await update(state)
+//            default:
+//                Task { @URLSessionCoordinatorActor in
+//                    await update(state)
+//                }
+//            }
+//        }
+//    }
+}
 
-    // MARK: - Private
 
-    private let urlSession: URLSession
+func makeDownloadTask(for download: Download, urlSession: URLSession, withObserver observer: DownloadTask.Observer) -> DownloadTask {
+    let urlSessionTask: URLSessionTask
 
-    private func makeDownloadTask(for download: Download, withObserver observer: DownloadTask.Observer) -> DownloadTask {
-        let urlSessionTask: URLSessionTask
+    var request = URLRequest(url: download.url)
+    request.allHTTPHeaderFields = download.urlRequestConfiguration.allHTTPHeaderFields
 
-        var request = URLRequest(url: download.url)
-        request.allHTTPHeaderFields = download.urlRequestConfiguration.allHTTPHeaderFields
-
-        switch download.destination {
-            case .inMemory:
-                urlSessionTask = urlSession.dataTask(with: request)
-            case .onDisk:
-                urlSessionTask = urlSession.downloadTask(with: request)
-        }
-
-        urlSessionTask.taskDescription = download.id.uuidString
-
-        return DownloadTask(download: download, urlSessionTask: urlSessionTask, observer: observer)
+    switch download.destination {
+        case .inMemory:
+            urlSessionTask = urlSession.dataTask(with: request)
+        case .onDisk:
+            urlSessionTask = urlSession.downloadTask(with: request)
     }
 
-    private typealias DownloadTaskID = String
+    urlSessionTask.taskDescription = download.id.uuidString
 
-    @URLSessionCoordinatorActor
-    private var registry: [DownloadTaskID: DownloadTask] = [:]
+    return DownloadTask(download: download, urlSessionTask: urlSessionTask, observer: observer)
 }

@@ -20,15 +20,13 @@ public protocol URLImageInMemoryStoreType: URLImageStoreType {
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public extension URLImageInMemoryStoreType {
-    @MainActor
     func getImage(_ identifier: String) async -> CGImage? {
         let transientImage: TransientImage? = await getImage([ .identifier(identifier) ])
-        return transientImage?.cgImage
+        return await transientImage?.cgImage
     }
 
-    @MainActor
     func getImage(_ url: URL) async -> CGImage? {
         let transientImage: TransientImage? = await getImage([ .url(url) ])
-        return transientImage?.cgImage
+        return await transientImage?.cgImage
     }
 }

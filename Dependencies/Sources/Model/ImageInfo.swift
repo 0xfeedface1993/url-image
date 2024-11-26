@@ -14,7 +14,9 @@ public struct ImageInfo: Sendable {
     /// Decoded image
     @MainActor
     public var cgImage: CGImage {
-        proxy.cgImage
+        get async {
+            await proxy.cgImage
+        }
     }
 
     /// Image size in pixels.
