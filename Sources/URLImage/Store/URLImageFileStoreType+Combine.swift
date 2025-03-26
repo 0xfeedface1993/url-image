@@ -28,4 +28,34 @@ extension URLImageFileStoreType {
             }
         }
     }
+    
+    public func getImageLocation(_ identifier: String) async throws -> URL? {
+        try await withCheckedThrowingContinuation { continuation in
+            getImage([.identifier(identifier)]) { location -> URL? in
+                return location
+            } completion: { result in
+                switch result {
+                case .success(let url):
+                    continuation.resume(returning: url)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func getImageLocation(_ url: URL) async throws -> URL? {
+        try await withCheckedThrowingContinuation { continuation in
+            getImage([.url(url)]) { location -> URL? in
+                return location
+            } completion: { result in
+                switch result {
+                case .success(let url):
+                    continuation.resume(returning: url)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 }

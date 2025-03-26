@@ -101,7 +101,7 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             
             Task {
                 let next = await RemoteImageLoadingCacheState.load(newValue)
-                withAnimation(.smooth) {
+                withAnimation(.spring) {
                     animateState = next
                 }
             }

@@ -14,11 +14,17 @@ public typealias PlatformViewRepresentable = UIViewRepresentable
 public typealias PlatformImage = UIImage
 public typealias PlatformImageView = UIImageView
 #elseif os(macOS)
+import Quartz
 public typealias PlatformView = NSView
 public typealias PlatformImage = NSImage
 public typealias PlatformImageView = NSImageView
 public typealias PlatformViewRepresentable = NSViewRepresentable
 #endif
+
+public enum GIFImageSource {
+    case image(PlatformImage)
+    case file(URL)
+}
 
 @available(macOS 12.0, iOS 15.0, *)
 public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty : View,
@@ -62,20 +68,23 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
 
 @available(macOS 11.0, iOS 14.0, *)
 public struct GIFImageView: View {
-    var image: PlatformImage
+    var source: GIFImageSource
     @Environment(\.imageConfigures) var imageConfigures
     
     init(image: PlatformImage) {
-        self.image = image
+        self.source = .image(image)
+    }
+    
+    init(url: URL) {
+        self.source = .file(url)
     }
     
     public var body: some View {
         if imageConfigures.resizeble, let aspectRatio = imageConfigures.aspectRatio {
-            GIFRepresentView(image: image)
+            GIFRepresentView(source: source)
                 .aspectRatio(aspectRatio, contentMode: imageConfigures.contentMode == .fit ? .fit:.fill)
         }   else    {
-            GIFRepresentView(image: image)
-                .frame(width: image.size.width, height: image.size.height)
+            GIFRepresentView(source: source)
         }
     }
 }
@@ -88,23 +97,40 @@ public extension View {
 
 @available(macOS 11.0, iOS 14.0, *)
 struct GIFRepresentView: PlatformViewRepresentable {
-    var image: PlatformImage
+    var source: GIFImageSource
     @Environment(\.imageConfigures) var imageConfigures
     
 #if os(iOS) || os(watchOS)
-    public func makeUIView(context: Context) -> UIGIFImage {
-        UIGIFImage(source: image)
+    public func makeUIView(context: Context) -> PlatformView {
+        switch source {
+        case .image(let image):
+            return UIGIFImage(source: image)
+        case .file(let url):
+            return PlatformView()
+        }
     }
     
-    public func updateUIView(_ uiView: UIGIFImage, context: Context) {
+    public func updateUIView(_ uiView: PlatformView, context: Context) {
         
     }
 #elseif os(macOS)
-    public func makeNSView(context: Context) -> UIGIFImage {
-        UIGIFImage(source: image)
+    public func makeNSView(context: Context) -> PlatformView {
+        switch source {
+        case .image(let image):
+            return UIGIFImage(source: image)
+        case .file(let url):
+            guard let preview = QLPreviewView(frame: .zero, style: .normal) else {
+                return QLPreviewView()
+            }
+            preview.shouldCloseWithWindow = false
+            preview.autostarts = true
+            preview.previewItem = url as QLPreviewItem
+            preview.refreshPreviewItem()
+            return preview
+        }
     }
     
-    public func updateNSView(_ nsView: NSViewType, context: Context) {
+    public func updateNSView(_ nsView: PlatformView, context: Context) {
         
     }
 #endif
@@ -239,4 +265,3 @@ extension EnvironmentValues {
 //        GIFImageTest()
 //    }
 //}
-

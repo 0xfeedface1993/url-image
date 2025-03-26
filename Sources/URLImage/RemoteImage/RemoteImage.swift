@@ -21,7 +21,7 @@ final class RemoteImageWrapper: ObservableObject {
 
 @globalActor
 public actor RemoteImageActor {
-    public static var shared = RemoteImageActor()
+    public static let shared = RemoteImageActor()
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
@@ -263,7 +263,6 @@ extension RemoteImage {
             case .success(let success):
                 switch success {
                 case .progress(let progress):
-                    print("progres update")
                     updateLoadingState(.inProgress(progress))
                 case .completion(let result):
                     do {

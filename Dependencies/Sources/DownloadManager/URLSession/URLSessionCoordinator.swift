@@ -52,12 +52,14 @@ final class URLSessionCoordinator: Sendable {
         return AsyncStream { continuation in
             let downloadTaskID = download.id.uuidString
             continuation.onTermination = { [weak coodinator] termination in
+                guard let coodinator else { return }
                 Task { @URLSessionCoordinatorActor in
-                    await coodinator?.completed(downloadTaskID)
+                    await coodinator.completed(downloadTaskID)
                 }
             }
             Task { @URLSessionCoordinatorActor [weak coodinator] in
-                await coodinator?.startDownload(download, continuation: continuation, downloadTaskID: downloadTaskID, makeDownloadTask: { download, observer in
+                guard let coodinator else { return }
+                await coodinator.startDownload(download, continuation: continuation, downloadTaskID: downloadTaskID, makeDownloadTask: { download, observer in
                     makeDownloadTask(for: download, urlSession: session, withObserver: observer)
                 })
             }
@@ -218,7 +220,12 @@ fileprivate actor RealURLSessionCoordinator {
     }
     
     func completed(_ id: DownloadTaskID) {
+        guard let item = self.registry[id] else { return }
         self.registry.removeValue(forKey: id)
+        if item.urlSessionTask.progress.fractionCompleted < 1 {
+            print("cancel url session task for \(id) - \(item.download.url)")
+            item.urlSessionTask.cancel()
+        }
     }
     
     func startDownload(_ download: Download, continuation: AsyncStream<DownloadStatus>.Continuation, downloadTaskID: DownloadTaskID, makeDownloadTask: @escaping @Sendable (Download, DownloadTask.Observer) -> DownloadTask) {

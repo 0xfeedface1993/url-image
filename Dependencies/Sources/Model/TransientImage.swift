@@ -48,7 +48,7 @@ public struct TransientImage: Sendable {
 
 @globalActor
 actor CGImageProxyActor {
-    static var shared = CGImageProxyActor()
+    static let shared = CGImageProxyActor()
 }
 
 /// Proxy used to decode image lazily

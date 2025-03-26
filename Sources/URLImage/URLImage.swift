@@ -294,7 +294,7 @@ struct InstalledRemoteView<Content: View>: View {
     var url: URL
     var identifier: String?
     var options: URLImageOptions
-    @State private var remoteImage: RemoteImage?
+    @StateObject private var remoteImage = RemoteImageWrapper()
     
     init(service: URLImageService, url: URL, identifier: String?, options: URLImageOptions, @ViewBuilder content: @escaping (RemoteImage) -> Content) {
         self.service = service
@@ -305,7 +305,7 @@ struct InstalledRemoteView<Content: View>: View {
     }
     
     var body: some View {
-        if let remoteImge = remoteImage {
+        if let remoteImge = remoteImage.remote {
             content(remoteImge)
         } else {
             Color.clear.backport.task {
@@ -316,7 +316,7 @@ struct InstalledRemoteView<Content: View>: View {
     
     private func inital() {
         let image = service.makeRemoteImage(url: url, identifier: identifier, options: options)
-        remoteImage = image
+        remoteImage.remote = image
         if options.loadOptions.contains(.loadImmediately) {
             image.load()
         }
