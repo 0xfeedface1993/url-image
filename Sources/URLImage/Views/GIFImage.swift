@@ -35,6 +35,7 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
     @Environment(\.urlImageOptions) var options
     
     var url: URL
+    private let identifier: String?
     
     private let empty: () -> Empty
     private let inProgress: (_ progress: Float?) -> InProgress
@@ -42,12 +43,14 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
     private let content: (_ image: GIFImageView) -> Content
     
     public init(_ url: URL,
+                identifier: String? = nil,
                  @ViewBuilder empty: @escaping () -> Empty,
                  @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
                  @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
                  @ViewBuilder content: @escaping (_ transientImage: GIFImageView) -> Content) {
         
         self.url = url
+        self.identifier = identifier
         self.empty = empty
         self.inProgress = inProgress
         self.failure = failure
@@ -55,7 +58,7 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
     }
     
     public var body: some View {
-        InstalledRemoteView(service: urlImageService, url: url, identifier: nil, options: options) { remoteImage in
+        InstalledRemoteView(service: urlImageService, url: url, identifier: identifier, options: options) { remoteImage in
             RemoteGIFImageView(remoteImage: remoteImage,
                                loadOptions: options.loadOptions,
                                empty: empty,
