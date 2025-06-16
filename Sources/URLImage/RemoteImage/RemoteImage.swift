@@ -37,6 +37,8 @@ public final class RemoteImage : ObservableObject, Sendable {
 
     let options: URLImageOptions
     
+    let debugDate: Date
+    
     @RemoteImageActor var stateCancellable: AnyCancellable?
 
     init(service: URLImageService, download: Download, identifier: String?, options: URLImageOptions) {
@@ -44,6 +46,8 @@ public final class RemoteImage : ObservableObject, Sendable {
         self.download = download
         self.identifier = identifier
         self.options = options
+        self.debugDate = Date()
+        
         stateBind()
 
         log_debug(nil, #function, download.url.absoluteString)
@@ -93,80 +97,93 @@ public final class RemoteImage : ObservableObject, Sendable {
                 next.isInProgress && current.isComplete ? current:next
             })
             .removeDuplicates()
+            .receive(on: DispatchQueue(label: "com.image.\(download.id)"))
             .eraseToAnyPublisher()
     }
     
     public func load() {
         Task { @RemoteImageActor in
-            guard !isLoading else {
+            await self.queueLoad()
+        }
+    }
+    
+    @RemoteImageActor
+    private func queueLoad() async {
+        guard !isLoading else {
+            return
+        }
+        
+        log_debug(self, #function, "Start load for: \(download.url)", detail: log_normal)
+        
+        updateIsLoading(true)
+        
+        switch options.fetchPolicy {
+        case .returnStoreElseLoad(let downloadDelay):
+            guard !isLoadedSuccessfully else {
+                // Already loaded
+                updateIsLoading(false)
                 return
             }
             
-            log_debug(self, #function, "Start load for: \(download.url)", detail: log_normal)
+            guard await !loadFromInMemoryStore() else {
+                // Loaded from the in-memory store
+                updateIsLoading(false)
+                return
+            }
             
-            updateIsLoading(true)
+            let success = await scheduleReturnStored(afterDelay: nil)
+            if !success {
+                self.scheduleDownload(afterDelay: downloadDelay, secondStoreLookup: true)
+            }
+        case .returnStoreDontLoad:
+            guard !isLoadedSuccessfully else {
+                // Already loaded
+                updateIsLoading(false)
+                return
+            }
             
-            switch options.fetchPolicy {
-            case .returnStoreElseLoad(let downloadDelay):
-                guard !isLoadedSuccessfully else {
-                    // Already loaded
-                    updateIsLoading(false)
-                    return
-                }
-                
-                guard await !loadFromInMemoryStore() else {
-                    // Loaded from the in-memory store
-                    updateIsLoading(false)
-                    return
-                }
-                
-                let success = await scheduleReturnStored(afterDelay: nil)
-                if !success {
-                    self.scheduleDownload(afterDelay: downloadDelay, secondStoreLookup: true)
-                }
-            case .returnStoreDontLoad:
-                guard !isLoadedSuccessfully else {
-                    // Already loaded
-                    updateIsLoading(false)
-                    return
-                }
-                
-                guard await !loadFromInMemoryStore() else {
-                    // Loaded from the in-memory store
-                    updateIsLoading(false)
-                    return
-                }
-                
-                let success = await scheduleReturnStored(afterDelay: nil)
-                if !success {
-                    updateLoadingState(.initial)
-                    updateIsLoading(false)
-                }
+            guard await !loadFromInMemoryStore() else {
+                // Loaded from the in-memory store
+                updateIsLoading(false)
+                return
+            }
+            
+            let success = await scheduleReturnStored(afterDelay: nil)
+            if !success {
+                updateLoadingState(.initial)
+                updateIsLoading(false)
             }
         }
     }
 
     public func cancel() {
         Task { @RemoteImageActor in
-            guard isLoading else {
-                return
-            }
-
-            log_debug(self, #function, "Cancel load for: \(download.url)", detail: log_normal)
-
-            isLoading = false
-            
-            delayedReturnStored?.cancel()
-            delayedReturnStored = nil
-
-            delayedDownload?.cancel()
-            delayedDownload = nil
+            self.queueCancel()
         }
     }
     
+    @RemoteImageActor
+    private func queueCancel() {
+        guard isLoading else {
+            return
+        }
+
+        log_debug(self, #function, "Cancel load for: \(download.url)", detail: log_normal)
+
+        isLoading = false
+        
+        delayedReturnStored?.cancel()
+        delayedReturnStored = nil
+
+        delayedDownload?.cancel()
+        delayedDownload = nil
+    }
+    
     private func notifyState(_ state: LoadingState) {
+        let slowLoadingState = self.slowLoadingState
+        let id = download.id
         Task { @MainActor in
-            self.slowLoadingState.send(state)
+            slowLoadingState.send(state)
         }
     }
 

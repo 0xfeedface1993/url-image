@@ -52,23 +52,18 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             switch animateState {
             case .initial:
                 empty()
-                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             case .inProgress(let progress):
                 inProgress(progress)
-                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             case .success(let value, let cgImage):
                 if let cgImage {
                     content(value, cgImage)
-                        .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
                 } else {
                     inProgress(1.0)
-                        .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
                 }
             case .failure(let error):
                 failure(error) {
                     remoteImage.load()
                 }
-                .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             }
         }
         .onAppear {

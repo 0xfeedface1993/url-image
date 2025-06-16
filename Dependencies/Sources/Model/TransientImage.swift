@@ -12,7 +12,7 @@ import DownloadManager
 
 @globalActor
 public actor URLImageInMemoryStoreActor {
-    public static var shared = URLImageInMemoryStoreActor()
+    public static let shared = URLImageInMemoryStoreActor()
 }
 
 /// Temporary representation used after decoding an image from data or file on disk and before creating an image object for display.
