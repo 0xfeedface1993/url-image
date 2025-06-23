@@ -100,7 +100,6 @@ fileprivate actor RealURLSessionCoordinator {
     deinit {
         registry.removeAll()
         
-        print("deinit RealURLSessionCoordinator")
 //        continuations.removeAll()
     }
     
