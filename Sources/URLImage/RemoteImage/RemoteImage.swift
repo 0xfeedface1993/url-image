@@ -40,6 +40,7 @@ public final class RemoteImage : ObservableObject, Sendable {
     let debugDate: Date
     
     @RemoteImageActor var stateCancellable: AnyCancellable?
+    @RemoteImageActor var updatedTask: Task<Void, Never>?
 
     init(service: URLImageService, download: Download, identifier: String?, options: URLImageOptions) {
         self.service = service
@@ -67,6 +68,7 @@ public final class RemoteImage : ObservableObject, Sendable {
 
     deinit {
         stateCancellable?.cancel()
+        updatedTask?.cancel()
         log_debug(nil, #function, download.url.absoluteString, detail: log_detailed)
     }
 
@@ -171,12 +173,6 @@ public final class RemoteImage : ObservableObject, Sendable {
         log_debug(self, #function, "Cancel load for: \(download.url)", detail: log_normal)
 
         isLoading = false
-        
-        delayedReturnStored?.cancel()
-        delayedReturnStored = nil
-
-        delayedDownload?.cancel()
-        delayedDownload = nil
     }
     
     private func notifyState(_ state: LoadingState) {
@@ -189,8 +185,6 @@ public final class RemoteImage : ObservableObject, Sendable {
 
     /// Internal loading state
     @RemoteImageActor private var isLoading: Bool = false
-    @RemoteImageActor private var delayedReturnStored: DispatchWorkItem?
-    @RemoteImageActor private var delayedDownload: DispatchWorkItem?
 }
 
 
@@ -247,23 +241,34 @@ extension RemoteImage {
     private func scheduleDownload(afterDelay delay: TimeInterval? = nil, secondStoreLookup: Bool = false) {
         guard let _ = delay else {
             // Start download immediately if no delay needed
-            Task {
-                await startDownload()
-            }
+            startAndUpdateDownload()
             return
         }
         
         if secondStoreLookup {
-            Task {
-                let success = await returnStored()
-                if !success {
-                    await startDownload()
+            Task { [weak self] in
+                let success = await self?.returnStored() ?? false
+                if !success, let self {
+                    let task = Task { [weak self] in
+                        await self?.startDownload()
+                        return
+                    }
+                    await self.updateUpdatedTask(task)
                 }
             }
         } else {
-            Task {
-                await startDownload()
-            }
+            startAndUpdateDownload()
+        }
+    }
+    
+    private func startAndUpdateDownload() {
+        let task = Task { [weak self] in
+            await self?.startDownload()
+            return
+        }
+        
+        Task { [weak self] in
+            await self?.updateUpdatedTask(task)
         }
     }
     
@@ -335,6 +340,11 @@ extension RemoteImage {
     @RemoteImageActor
     private func updateIsLoading(_ loading: Bool) {
         self.isLoading = loading
+    }
+    
+    @RemoteImageActor
+    private func updateUpdatedTask(_ task: Task<Void, Never>) {
+        self.updatedTask = task
     }
 
     /// Helper to return `URLImageStoreKey` objects based on `URLImageOptions` and `Download` properties

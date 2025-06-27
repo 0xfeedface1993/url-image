@@ -47,13 +47,17 @@ extension URLImageService {
                 }
             } else {
                 // Fallback on earlier versions
+                assert(false)
             }
         }
-        return AsyncThrowingStream<ImageInfo, Error> { continuation in
-            Task {
-                await operation(continuation)
-            }
+        let (stream, continuation) = AsyncThrowingStream<ImageInfo, Error>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let task = Task {
+            await operation(continuation)
         }
+        continuation.onTermination = { _ in
+            task.cancel()
+        }
+        return stream
     }
 
     /// Creates download destination depending if download must happen in memory or on disk

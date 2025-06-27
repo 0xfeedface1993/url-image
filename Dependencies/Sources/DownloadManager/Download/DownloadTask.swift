@@ -69,30 +69,29 @@ final class DownloadTask: Sendable {
         self.urlSessionTask = urlSessionTask
         self.observer = observer
     }
-
-    func complete(withError error: Error? = nil) {
-        Task { @DownloadTaskActor in
-//            guard let self else { return }
-            if let error = error {
-                self.observer.notifyCompletion(.failure(error))
-                return
+    
+    func complete(withError error: Error? = nil) async {
+        let observer = self.observer
+        let destination = self.download.destination
+        if let error = error {
+            await observer.notifyCompletion(.failure(error))
+            return
+        }
+        
+        switch destination {
+        case .inMemory:
+            if let data = await self.buffer {
+                let result = DownloadResult.data(data)
+                await observer.notifyCompletion(.success(result))
             }
-
-            switch self.download.destination {
-                case .inMemory:
-                    if let data = self.buffer {
-                        let result = DownloadResult.data(data)
-                        self.observer.notifyCompletion(.success(result))
-                    }
-                    else {
-                        let error = URLError(.unknown)
-                        self.observer.notifyCompletion(.failure(error))
-                    }
-
-                case .onDisk(let path):
-                    let result = DownloadResult.file(path)
-                    self.observer.notifyCompletion(.success(result))
+            else {
+                let error = URLError(.unknown)
+                await observer.notifyCompletion(.failure(error))
             }
+            
+        case .onDisk(let path):
+            let result = DownloadResult.file(path)
+            await observer.notifyCompletion(.success(result))
         }
     }
 

@@ -49,26 +49,28 @@ final class URLSessionCoordinator: Sendable {
     func startDownload(_ download: Download) -> AsyncStream<DownloadStatus> {
         let coodinator = self._coordinator
         let session = self.urlSession
-        return AsyncStream { continuation in
-            let downloadTaskID = download.id.uuidString
-            continuation.onTermination = { [weak coodinator] termination in
-                guard let coodinator else { return }
-                Task { @URLSessionCoordinatorActor in
-                    await coodinator.completed(downloadTaskID)
-                }
-            }
-            Task { @URLSessionCoordinatorActor [weak coodinator] in
-                guard let coodinator else { return }
-                await coodinator.startDownload(download, continuation: continuation, downloadTaskID: downloadTaskID, makeDownloadTask: { download, observer in
-                    makeDownloadTask(for: download, urlSession: session, withObserver: observer)
-                })
+        let (stream, continuation) = AsyncStream<DownloadStatus>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let downloadTaskID = download.id.uuidString
+        let task = Task { @URLSessionCoordinatorActor [weak coodinator] in
+            guard let coodinator else { return }
+            await coodinator.startDownload(download, continuation: continuation, downloadTaskID: downloadTaskID, makeDownloadTask: { download, observer in
+                makeDownloadTask(for: download, urlSession: session, withObserver: observer)
+            })
+        }
+        continuation.onTermination = { [weak coodinator] termination in
+            task.cancel()
+            guard let coodinator else { return }
+            Task { @URLSessionCoordinatorActor in
+                await coodinator.completed(downloadTaskID)
             }
         }
+        return stream
     }
 
     func cancelDownload(_ download: Download) {
+        let coodinator = self._coordinator
         Task { @URLSessionCoordinatorActor in
-            await _coordinator.cancel(download)
+            await coodinator.cancel(download)
         }
     }
     
@@ -103,27 +105,27 @@ fileprivate actor RealURLSessionCoordinator {
 //        continuations.removeAll()
     }
     
-    func notify(_ state: URLSessionDelegate.TaskState) {
+    func notify(_ state: URLSessionDelegate.TaskState) async {
         switch state {
         case .didCompleteWithError(let downloadTask, let error):
             for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
-                update(state, with: id)
+                await update(state, with: id)
             }
         case .didReceiveResponse(let downloadTask, let response, let completionHandler):
             for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
-                update(state, with: id)
+                await update(state, with: id)
             }
         case .didReceiveData(let downloadTask, let data):
             for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
-                update(state, with: id)
+                await update(state, with: id)
             }
         case .didFinishDownloadingTo(let downloadTask, let location):
             for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
-                update(state, with: id)
+                await update(state, with: id)
             }
         case .downloadTaskDidWriteData(let downloadTask, let bytesWritten, let totalBytesWritten, let totalBytesExpectedToWrite):
             for (id, task) in registry where task.urlSessionTask.taskIdentifier == downloadTask.taskIdentifier {
-                update(state, with: id)
+                await update(state, with: id)
             }
         }
     }
@@ -141,22 +143,20 @@ fileprivate actor RealURLSessionCoordinator {
 //        continuations.removeValue(forKey: id)
 //    }
     
-    func update(_ state: URLSessionDelegate.TaskState, with downloadTaskID: DownloadTaskID) {
+    func update(_ state: URLSessionDelegate.TaskState, with downloadTaskID: DownloadTaskID) async {
         switch state {
         case .didCompleteWithError(let urlSessionTask, let error):
             guard let downloadTask = self.registry[downloadTaskID] else {
                 // This can happen when the task was cancelled
                 return
             }
-
-            self.registry[downloadTaskID] = nil
-
+            
             if let error = error {
-                downloadTask.complete(withError: error)
+                await downloadTask.complete(withError: error)
+            } else {
+                await downloadTask.complete()
             }
-            else {
-                downloadTask.complete()
-            }
+            self.registry[downloadTaskID] = nil
         case .didReceiveResponse(let task, let response, let completion):
             guard let downloadTask = self.registry[downloadTaskID] else {
                 // This can happen when the task was cancelled

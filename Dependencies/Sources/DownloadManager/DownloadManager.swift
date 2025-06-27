@@ -26,7 +26,7 @@ public final class DownloadManager: Sendable {
     private var relations = [URL: Set<UUID>]()
 
     public init() {
-        var configuration = URLSessionConfiguration.default
+        let configuration = URLSessionConfiguration.default
         let options = NWProtocolTLS.Options()
         sec_protocol_options_set_min_tls_protocol_version(options.securityProtocolOptions, .TLSv12)
         sec_protocol_options_add_tls_application_protocol(options.securityProtocolOptions, "h2")
@@ -37,14 +37,21 @@ public final class DownloadManager: Sendable {
     public func download(for download: Download) -> AsyncStream<Result<DownloadInfo, Error>> {
         let coordinator = self.coordinator
         let publishers = self.publishers
-
-        return AsyncStream { continuation in
-            Task {
-                await self.cache(UUID(), in: download.url, continuation: continuation)
-                let item = await publishers.store(download, coordinator: coordinator)
-                await self.start(download)
+        
+        let (stream, continuation) = AsyncStream<Result<DownloadInfo, Error>>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let uuid = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.cache(uuid, in: download.url, continuation: continuation)
+            let _ = await publishers.store(download, coordinator: coordinator)
+            await self.start(download)
+        }
+        continuation.onTermination = { [weak self] _ in
+            Task { @DownloadManagerActor in
+                self?.uncache(uuid)
             }
         }
+        return stream
     }
     
     private let publishers = PublishersHolder()
@@ -62,12 +69,6 @@ public final class DownloadManager: Sendable {
     
     @DownloadManagerActor
     private func cache(_ uuid: UUID, in url: URL, continuation: Stream.Continuation) {
-        continuation.onTermination = { [weak self] _ in
-            guard let self else { return }
-            Task { @DownloadManagerActor in
-                self.uncache(uuid)
-            }
-        }
         subscribers[uuid] = continuation
         relations[url] = (relations[url] ?? Set<UUID>()).union([uuid])
     }
@@ -75,24 +76,26 @@ public final class DownloadManager: Sendable {
     @DownloadManagerActor
     private func uncache(_ uuid: UUID) {
         if let (url, sets) = relations.first(where: { $0.value.contains(uuid) }) {
-            relations[url] = sets.subtracting([uuid])
+            let next = sets.subtracting([uuid])
+            relations[url] = next
         }
         subscribers.removeValue(forKey: uuid)
     }
     
     @DownloadManagerActor
     private func broadcast(to download: Download, with result: Result<DownloadInfo, DownloadError>) {
-        guard let downstreams = relations[download.url]?.compactMap({ ($0, subscribers[$0]) }) else {
+        guard let relation = relations[download.url] else {
             return
         }
-        for (id, continuation) in downstreams {
+        let downstreams = relation.compactMap({ ($0, subscribers[$0]) })
+        for (_, continuation) in downstreams {
             switch result {
             case .success(let info):
                 continuation?.yield(result)
                 if case .completion = info {
                     continuation?.finish()
                 }
-            case .failure(let error):
+            case .failure(_):
                 continuation?.yield(result)
                 continuation?.finish()
             }
@@ -111,6 +114,7 @@ actor PublishersHolder {
     private var publishers: [URL: DownloadAsyncTask] = [:]
     private var subscribers = [UUID: Stream.Continuation]()
     private var relations = [URL: Set<UUID>]()
+    private var runnings = [URL: Task<Void, Never>]()
     
     deinit {
         let cache = subscribers.map(\.value)
@@ -133,7 +137,14 @@ actor PublishersHolder {
     
     private func uncache(_ uuid: UUID) {
         if let (url, sets) = relations.first(where: { $0.value.contains(uuid) }) {
-            relations[url] = sets.subtracting([uuid])
+            let next = sets.subtracting([uuid])
+            relations[url] = next
+//            if next.isEmpty, let publisher = publishers[url] {
+//                publisher.coordinator.cancelDownload(publisher.download)
+//                publishers.removeValue(forKey: url)
+//                runnings[url]?.cancel()
+//                runnings.removeValue(forKey: url)
+//            }
         }
         subscribers.removeValue(forKey: uuid)
     }
@@ -168,19 +179,30 @@ actor PublishersHolder {
             newTask = true
             print("create new publisher for \(download.url)")
         }
-        return AsyncThrowingStream { continuation in
-            cache(download.id, in: download.url, continuation: continuation)
-            if newTask {
-                Task {
-                    do {
-                        for try await item in publisher.start().compactMap({ $0 as? Result<DownloadInfo, DownloadError> }) {
-                            broadcast(to: download, with: item)
-                        }
-                    } catch {
-                        broadcast(to: download, with: .failure(error))
+        let id = UUID()
+        let (stream, continuation) = Stream.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                guard let self else { return }
+                await self.uncache(id)
+            }
+        }
+        cache(id, in: download.url, continuation: continuation)
+        if newTask {
+            let queue = publisher.start().compactMap({ $0 as? Result<DownloadInfo, DownloadError> })
+            runnings[download.url] = Task { [weak self] in
+                do {
+                    for try await item in queue {
+                        print("[\(download.url)]] recevice from DownloadAsyncTask: \(item) ")
+                        guard let self else { return }
+                        await self.broadcast(to: download, with: item)
                     }
+                } catch {
+                    guard let self else { return }
+                    await self.broadcast(to: download, with: .failure(error))
                 }
             }
         }
+        return stream
     }
 }
