@@ -47,6 +47,7 @@ public final class DownloadManager: Sendable {
             await self.start(download)
         }
         continuation.onTermination = { [weak self] _ in
+            task.cancel()
             Task { @DownloadManagerActor in
                 self?.uncache(uuid)
             }
@@ -92,12 +93,8 @@ public final class DownloadManager: Sendable {
             switch result {
             case .success(let info):
                 continuation?.yield(result)
-                if case .completion = info {
-                    continuation?.finish()
-                }
             case .failure(_):
                 continuation?.yield(result)
-                continuation?.finish()
             }
         }
     }
@@ -188,15 +185,16 @@ actor PublishersHolder {
             }
         }
         cache(id, in: download.url, continuation: continuation)
-        if newTask {
+        if runnings[download.url] == nil {
             let queue = publisher.start().compactMap({ $0 as? Result<DownloadInfo, DownloadError> })
             runnings[download.url] = Task { [weak self] in
                 do {
                     for try await item in queue {
-                        print("[\(download.url)]] recevice from DownloadAsyncTask: \(item) ")
                         guard let self else { return }
                         await self.broadcast(to: download, with: item)
                     }
+                    guard let self else { return }
+                    await self.clearAll(download, coordinator: coordinator)
                 } catch {
                     guard let self else { return }
                     await self.broadcast(to: download, with: .failure(error))
@@ -204,5 +202,11 @@ actor PublishersHolder {
             }
         }
         return stream
+    }
+    
+    private func clearAll(_ download: Download, coordinator: URLSessionCoordinator) {
+        coordinator.cancelDownload(download)
+        self.runnings[download.url]?.cancel()
+        self.runnings.removeValue(forKey: download.url)
     }
 }

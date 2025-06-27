@@ -67,7 +67,7 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             }
         }
         .onAppear {
-            if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
+            if loadOptions.contains(.loadOnAppear) || loadOptions.contains(.loadImmediately), !remoteImage.slowLoadingState.value.isSuccess {
                 remoteImage.load()
             }
         }
@@ -75,7 +75,8 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             if loadOptions.contains(.cancelOnDisappear) {
                 remoteImage.cancel()
             }
-//            remoteImage.
+            
+            remoteImage.onDissAppear()
         }
         .onReceive(remoteImage.slowLoadingState) { newValue in
             guard urlImageOptions.loadingAnimated else {

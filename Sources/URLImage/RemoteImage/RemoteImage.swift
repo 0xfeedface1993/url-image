@@ -164,6 +164,12 @@ public final class RemoteImage : ObservableObject, Sendable {
         }
     }
     
+    public func onDissAppear() {
+        Task { @RemoteImageActor in
+            self.updatedTask?.cancel()
+        }
+    }
+    
     @RemoteImageActor
     private func queueCancel() {
         guard isLoading else {
@@ -344,6 +350,7 @@ extension RemoteImage {
     
     @RemoteImageActor
     private func updateUpdatedTask(_ task: Task<Void, Never>) {
+        self.updatedTask?.cancel()
         self.updatedTask = task
     }
 
