@@ -317,7 +317,7 @@ struct InstalledRemoteView<Content: View>: View {
     private func inital() {
         let image = service.makeRemoteImage(url: url, identifier: identifier, options: options)
         remoteImage.remote = image
-        if options.loadOptions.contains(.loadImmediately) {
+        if options.loadOptions.contains(.loadImmediately) || options.loadOptions.contains(.loadOnAppear) {
             image.load()
         }
     }

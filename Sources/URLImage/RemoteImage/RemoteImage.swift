@@ -165,8 +165,9 @@ public final class RemoteImage : ObservableObject, Sendable {
     }
     
     public func onDissAppear() {
-        Task { @RemoteImageActor in
-            self.updatedTask?.cancel()
+        Task { @RemoteImageActor [weak self] in
+            self?.updatedTask?.cancel()
+            self?.isLoading = false
         }
     }
     
