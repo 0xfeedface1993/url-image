@@ -6,6 +6,7 @@
 //
 
 import Model
+import CoreGraphics
 
 
 /// The state of the loading process.
@@ -29,15 +30,40 @@ public enum RemoteImageLoadingState: Sendable {
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-extension RemoteImageLoadingState: @preconcurrency Equatable {
-    @MainActor public static func == (lhs: RemoteImageLoadingState, rhs: RemoteImageLoadingState) -> Bool {
+public enum RemoteImageLoadingCacheState: Sendable {
+
+    case initial
+
+    case inProgress(_ progress: Float?)
+
+    case success(_ value: TransientImage, _ cgImage: CGImage?)
+
+    case failure(_ error: Error)
+    
+    public static func load(_ state: RemoteImageLoadingState) async -> Self {
+        switch state {
+        case .initial:
+            return .initial
+        case .inProgress(let value):
+            return  .inProgress(value)
+        case .success(let transitImage):
+            return .success(transitImage, await transitImage.cgImage)
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
+extension RemoteImageLoadingState: Equatable {
+    public static func == (lhs: RemoteImageLoadingState, rhs: RemoteImageLoadingState) -> Bool {
         switch (lhs, rhs) {
         case (.initial, .initial):
             return true
         case (.inProgress(let lp), .inProgress(let rp)):
             return lp == rp
         case (.success(let lv), .success(let rv)):
-            return lv.image == rv.image
+            return lv.presentation == rv.presentation
         case (.failure(_), .failure(_)):
             return true
         default:

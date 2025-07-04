@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 import Model
 
 
@@ -23,17 +22,17 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
     let empty: () -> Empty
     let inProgress: (_ progress: Float?) -> InProgress
     let failure: (_ error: Error, _ retry: @escaping () -> Void) -> Failure
-    let content: (_ value: TransientImage) -> Content
+    let content: (_ value: TransientImage, _ cgImage: CGImage?) -> Content
     
     @Namespace var namespace
-    @State var animateState: RemoteImageLoadingState = .initial
+    @State var animateState: RemoteImageLoadingCacheState = .initial
 
     init(remoteImage: RemoteImage,
          loadOptions: URLImageOptions.LoadOptions,
          @ViewBuilder empty: @escaping () -> Empty,
          @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
          @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
-         @ViewBuilder content: @escaping (_ value: TransientImage) -> Content) {
+         @ViewBuilder content: @escaping (_ value: TransientImage, _ cgImage: CGImage?) -> Content) {
 
         self.remoteImage = remoteImage
         self.loadOptions = loadOptions
@@ -53,52 +52,55 @@ struct RemoteImageView<Empty, InProgress, Failure, Content> : View where Empty :
             switch animateState {
             case .initial:
                 empty()
-                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             case .inProgress(let progress):
                 inProgress(progress)
-                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
-            case .success(let value):
-                content(value)
-                    .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
+            case .success(let value, let cgImage):
+                if let cgImage {
+                    content(value, cgImage)
+                } else {
+                    inProgress(1.0)
+                }
             case .failure(let error):
                 failure(error) {
-                    loadRemoteImage()
+                    remoteImage.load()
                 }
-                .matchedGeometryEffect(id: remoteImage.download.url, in: namespace)
             }
         }
         .onAppear {
-            if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
-                loadRemoteImage()
+            if loadOptions.contains(.loadOnAppear) || loadOptions.contains(.loadImmediately), !remoteImage.slowLoadingState.value.isSuccess {
+                remoteImage.load()
             }
         }
         .onDisappear {
             if loadOptions.contains(.cancelOnDisappear) {
                 remoteImage.cancel()
             }
+            
+            remoteImage.onDissAppear()
         }
         .onReceive(remoteImage.slowLoadingState) { newValue in
             guard urlImageOptions.loadingAnimated else {
-                animateState = newValue
+                switch newValue {
+                case .initial:
+                    animateState = .initial
+                case .inProgress(let value):
+                    animateState = .inProgress(value)
+                case .success(let transitImage):
+                    Task {
+                        animateState = .success(transitImage, await transitImage.cgImage)
+                    }
+                case .failure(let error):
+                    animateState = .failure(error)
+                }
                 return
             }
             
-            withAnimation(.smooth) {
-                animateState = newValue
-            }
-        }
-    }
-    
-    private func loadRemoteImage() {
-        let remote = remoteImage
-        Task {
-            await withTaskCancellationHandler(operation: {
-                await remote.load()
-            }, onCancel: {
-                Task {
-                    await remote.cancel()
+            Task {
+                let next = await RemoteImageLoadingCacheState.load(newValue)
+                withAnimation(.spring) {
+                    animateState = next
                 }
-            })
+            }
         }
     }
 }

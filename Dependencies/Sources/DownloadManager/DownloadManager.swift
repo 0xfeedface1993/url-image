@@ -6,245 +6,207 @@
 //
 
 import Foundation
-@preconcurrency import Combine
-import AsyncExtensions
+import Network
+
+@globalActor
+actor DownloadManagerActor {
+    static let shared = DownloadManagerActor()
+}
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-public final class DownloadManager {
+public final class DownloadManager: Sendable {
 
     let coordinator: URLSessionCoordinator
+    
+    typealias Stream = AsyncStream<Result<DownloadInfo, Error>>
+    
+    @DownloadManagerActor
+    private var subscribers = [UUID: Stream.Continuation]()
+    @DownloadManagerActor
+    private var relations = [URL: Set<UUID>]()
 
     public init() {
-        coordinator = URLSessionCoordinator(urlSessionConfiguration: .default)
+        let configuration = URLSessionConfiguration.default
+        let options = NWProtocolTLS.Options()
+        sec_protocol_options_set_min_tls_protocol_version(options.securityProtocolOptions, .TLSv12)
+        sec_protocol_options_add_tls_application_protocol(options.securityProtocolOptions, "h2")
+        sec_protocol_options_add_tls_application_protocol(options.securityProtocolOptions, "http/1.1")
+        coordinator = URLSessionCoordinator(urlSessionConfiguration: configuration)
     }
-
-    public typealias DownloadTaskPublisher = Publishers.Share<DownloadPublisher>
-
-//    public func publisher(for download: Download) -> DownloadTaskPublisher {
-//        sync {
-//            let publisher = publishers[download] ?? DownloadPublisher(download: download, manager: self).share()
-//            publishers[download] = publisher
-//
-//            return publisher
-//        }
-//    }
-    
-//    public func download(for download: Download) -> AsyncStream<Result<DownloadInfo, Error>> {
-//        AsyncStream { continuation in
-//            sync {
-//                let current = publishers[download]
-//                let publisher = current ?? DownloadPublisher(download: download, manager: self).share()
-//                print("current downloader task for \(download.url) - \(current), publisher \(publisher)")
-//                publishers[download] = publisher
-//                var cancelHash: Int?
-//                let cancellable = publisher.sink { [weak self] completion in
-//                    switch completion {
-//                    case .finished:
-//                        break
-//                    case .failure(let error):
-//                        continuation.yield(with: .success(.failure(error)))
-//                    }
-//                    continuation.finish()
-//                    if let cancelHash {
-//                        self?.sync {
-//                            guard let self else { return }
-//                            if let cancel = self.cancellableSets.first(where: { $0.hashValue == cancelHash }) {
-//                                self.cancellableSets.remove(cancel)
-//                            }
-//                            self.cancellableHashTable[download]?.removeAll(where: { $0 == cancelHash })
-//                        }
-//                    }
-//                } receiveValue: { output in
-//                    continuation.yield(.success(output))
-//                }
-//                cancellableSets.insert(cancellable)
-//                cancelHash = cancellable.hashValue
-//                var values = cancellableHashTable[download] ?? []
-//                values.append(cancelHash!)
-//                cancellableHashTable[download] = values
-//            }
-//        }
-//    }
     
     public func download(for download: Download) -> AsyncStream<Result<DownloadInfo, Error>> {
         let coordinator = self.coordinator
         let publishers = self.publishers
-        return AsyncStream { continuation in
-            Task {
-                let _ = await publishers.store(download, coordinator: coordinator, action: { result in
-                    switch result {
-                    case .success(let info):
-                        print("yield \(info)")
-                        continuation.yield(.success(info))
-                    case .failure(let error):
-                        continuation.yield(with: .success(.failure(error)))
-                    }
-                })
+        
+        let (stream, continuation) = AsyncStream<Result<DownloadInfo, Error>>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let uuid = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.cache(uuid, in: download.url, continuation: continuation)
+            let _ = await publishers.store(download, coordinator: coordinator)
+            await self.start(download)
+        }
+        continuation.onTermination = { [weak self] _ in
+            task.cancel()
+            Task { @DownloadManagerActor in
+                self?.uncache(uuid)
+            }
+        }
+        return stream
+    }
+    
+    private let publishers = PublishersHolder()
+    
+    private func start(_ download: Download) async {
+        let item = await publishers.store(download, coordinator: coordinator)
+        do {
+            for try await value in item {
+                await self.broadcast(to: download, with: .success(value))
+            }
+        } catch {
+            await self.broadcast(to: download, with: .failure(error))
+        }
+    }
+    
+    @DownloadManagerActor
+    private func cache(_ uuid: UUID, in url: URL, continuation: Stream.Continuation) {
+        subscribers[uuid] = continuation
+        relations[url] = (relations[url] ?? Set<UUID>()).union([uuid])
+    }
+    
+    @DownloadManagerActor
+    private func uncache(_ uuid: UUID) {
+        if let (url, sets) = relations.first(where: { $0.value.contains(uuid) }) {
+            let next = sets.subtracting([uuid])
+            relations[url] = next
+        }
+        subscribers.removeValue(forKey: uuid)
+    }
+    
+    @DownloadManagerActor
+    private func broadcast(to download: Download, with result: Result<DownloadInfo, DownloadError>) {
+        guard let relation = relations[download.url] else {
+            return
+        }
+        let downstreams = relation.compactMap({ ($0, subscribers[$0]) })
+        for (_, continuation) in downstreams {
+            switch result {
+            case .success(let info):
+                continuation?.yield(result)
+            case .failure(_):
+                continuation?.yield(result)
             }
         }
     }
-
-//    public func reset(download: Download) {
-//        async { [weak self] in
-//            guard let self = self else {
-//                return
-//            }
-//
-//            self.publishers[download] = nil
-//            if let hashValues = self.cancellableHashTable[download] {
-//                let cancellables = self.cancellableSets.filter({ hashValues.contains($0.hashValue) })
-//                for cancellable in cancellables {
-//                    self.cancellableSets.remove(cancellable)
-//                    cancellable.cancel()
-//                }
-//            }
-//        }
-//        Task {
-//            await publishers.remove(download)
-//        }
-//    }
-
-//    private var publishers: [Download: DownloadTaskPublisher] = [:]
-    private let publishers = PublishersHolder()
-
-    private let serialQueue = DispatchQueue(label: "DownloadManager.serialQueue")
-
-//    private func async(_ closure: @escaping () -> Void) {
-//        serialQueue.async(execute: closure)
-//    }
-//
-//    private func sync<T>(_ closure: () -> T) -> T {
-//        serialQueue.sync(execute: closure)
-//    }
 }
-
-//@available(macOS 11.0, *)
-//struct Downloader: AsyncSequence {
-//    typealias AsyncIterator = Iterator
-//    typealias Element = DownloadInfo
-//    let download: Download
-//    let manager: DownloadManager
-//    
-//    struct Iterator: AsyncIteratorProtocol {
-//        let download: Download
-//        let manager: DownloadManager
-//        
-//        func next() async throws -> Element? {
-//            
-//        }
-//    }
-//    
-//    func makeAsyncIterator() -> Iterator {
-//        Iterator(download: download, manager: manager)
-//        
-//        manager.coordinator.startDownload(download,
-//                                          receiveResponse: { _ in
-//        },
-//                                          receiveData: {  _, _ in
-//        },
-//                                          reportProgress: { _, progress in
-//            let _ = self.subscriber?.receive(.progress(progress))
-//        },
-//                                          completion: { [weak self] _, result in
-//            guard let self = self else {
-//                return
-//            }
-//            
-//            switch result {
-//            case .success(let downloadResult):
-//                switch downloadResult {
-//                case .data(let data):
-//                    break
-//                case .file(let path):
-//                    break
-//                }
-//            case .failure(let error):
-//                break
-//            }
-//            
-//            self.manager.reset(download: self.download)
-//        })
-//    }
-//}
 
 enum DownloadEventError: Error {
     case cancelled
 }
 
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-actor PublishersHolder: Sendable {
-    private var publishers: [URL: DownloadManager.DownloadTaskPublisher] = [:]
-    private var cancellableHashTable = [UUID: AnyCancellable]()
-    private var cancellables = [URL: Set<UUID>]()
-    private let subject = AsyncBufferedChannel<UUID>()
-    private var loaded = false
+actor PublishersHolder {
+    typealias Stream = AsyncThrowingStream<DownloadInfo, DownloadError>
+    
+    private var publishers: [URL: DownloadAsyncTask] = [:]
+    private var subscribers = [UUID: Stream.Continuation]()
+    private var relations = [URL: Set<UUID>]()
+    private var runnings = [URL: Task<Void, Never>]()
     
     deinit {
-        subject.finish()
+        let cache = subscribers.map(\.value)
+        subscribers.removeAll()
+        cache.forEach {
+            $0.finish()
+        }
     }
     
-    func store(_ download: Download, coordinator: URLSessionCoordinator, action: @escaping (Result<DownloadInfo, Error>) -> Void) {
-        if !loaded {
-            loaded = true
-            let subject = self.subject
+    private func cache(_ uuid: UUID, in url: URL, continuation: Stream.Continuation) {
+        continuation.onTermination = { [weak self] _ in
+            guard let self else { return }
             Task {
-                for await uuid in subject {
-                    pop(uuid)
-                }
-                print("publisher obseration finished.")
+                await self.uncache(uuid)
             }
         }
-        
-        let publisher: Publishers.Share<DownloadPublisher>
+        subscribers[uuid] = continuation
+        relations[url] = (relations[url] ?? Set<UUID>()).union([uuid])
+    }
+    
+    private func uncache(_ uuid: UUID) {
+        if let (url, sets) = relations.first(where: { $0.value.contains(uuid) }) {
+            let next = sets.subtracting([uuid])
+            relations[url] = next
+//            if next.isEmpty, let publisher = publishers[url] {
+//                publisher.coordinator.cancelDownload(publisher.download)
+//                publishers.removeValue(forKey: url)
+//                runnings[url]?.cancel()
+//                runnings.removeValue(forKey: url)
+//            }
+        }
+        subscribers.removeValue(forKey: uuid)
+    }
+    
+    private func broadcast(to download: Download, with result: Result<DownloadInfo, DownloadError>) {
+        guard let downstreams = relations[download.url]?.compactMap({ subscribers[$0] }) else {
+            return
+        }
+        for continuation in downstreams {
+            switch result {
+            case .success(let info):
+                continuation.yield(info)
+                if case .completion = info {
+                    continuation.finish()
+                }
+            case .failure(let error):
+                continuation.finish(throwing: error)
+            }
+        }
+    }
+    
+    func store(_ download: Download, coordinator: URLSessionCoordinator) -> Stream {
+        let publisher: DownloadAsyncTask
+        let newTask: Bool
         if let current = publishers[download.url] {
             publisher = current
+            newTask = false
             print("use exists task for \(download.url)")
         } else {
-            publisher = DownloadPublisher(download: download, coordinator: coordinator).share()
+            publisher = DownloadAsyncTask(download: download, coordinator: coordinator)
             publishers[download.url] = publisher
+            newTask = true
             print("create new publisher for \(download.url)")
         }
-        let uuid = download.id
-        let subject = self.subject
-        cancellableHashTable[uuid] = publisher
-            .handleEvents(receiveCancel: {
-                action(.failure(DownloadEventError.cancelled))
-            }).sink { completion in
-                switch completion {
-                case .finished:
-                    break
-                case .failure(let error):
-                    action(.failure(error))
-                }
-                
-                subject.send(uuid)
-            } receiveValue: { output in
-                action(.success(output))
+        let id = UUID()
+        let (stream, continuation) = Stream.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                guard let self else { return }
+                await self.uncache(id)
             }
-        var uuids = cancellables[download.url] ?? []
-        uuids.insert(uuid)
-        cancellables[download.url] = uuids
+        }
+        cache(id, in: download.url, continuation: continuation)
+        if runnings[download.url] == nil {
+            let queue = publisher.start().compactMap({ $0 as? Result<DownloadInfo, DownloadError> })
+            runnings[download.url] = Task { [weak self] in
+                do {
+                    for try await item in queue {
+                        guard let self else { return }
+                        await self.broadcast(to: download, with: item)
+                    }
+                    guard let self else { return }
+                    await self.clearAll(download, coordinator: coordinator)
+                } catch {
+                    guard let self else { return }
+                    await self.broadcast(to: download, with: .failure(error))
+                }
+            }
+        }
+        return stream
     }
     
-//    func remove(_ download: Download) {
-//        publishers.removeValue(forKey: download)
-//        for uuid in cancellables[download] ?? [] {
-//            cancellableHashTable[uuid]?.cancel()
-//            cancellableHashTable.removeValue(forKey: uuid)
-//        }
-//        cancellables.removeValue(forKey: download)
-//    }
-    
-    func pop(_ uuid: UUID) {
-        if let task = cancellableHashTable[uuid] {
-            cancellableHashTable.removeValue(forKey: uuid)
-            task.cancel()
-        }
-        
-        for (key, value) in cancellables.filter({ $0.value.contains(uuid) }) {
-            var next = value
-            next.remove(uuid)
-            cancellables[key] = next
-        }
+    private func clearAll(_ download: Download, coordinator: URLSessionCoordinator) {
+        coordinator.cancelDownload(download)
+        self.runnings[download.url]?.cancel()
+        self.runnings.removeValue(forKey: download.url)
     }
 }

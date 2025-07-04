@@ -7,16 +7,16 @@
 
 import Foundation
 import URLImage
+import Model
 
-
-public final class URLImageInMemoryStore {
+public final class URLImageInMemoryStore: Sendable {
 
     public init() {
     }
 
     // MARK: - Private
 
-    private final class KeyWrapper: NSObject {
+    private final class KeyWrapper: NSObject, Sendable {
 
         let key: URLImageKey
 
@@ -37,8 +37,8 @@ public final class URLImageInMemoryStore {
         }
     }
 
+    @URLImageInMemoryStoreActor
     private final class ObjectWrapper {
-
         let image: Any
 
         let info: URLImageStoreInfo
@@ -49,6 +49,7 @@ public final class URLImageInMemoryStore {
         }
     }
 
+    @URLImageInMemoryStoreActor
     private let cache = NSCache<KeyWrapper, ObjectWrapper>()
 }
 
@@ -56,22 +57,28 @@ public final class URLImageInMemoryStore {
 extension URLImageInMemoryStore: URLImageInMemoryStoreType {
 
     public func removeAllImages() {
-        cache.removeAllObjects()
+        Task { @URLImageInMemoryStoreActor in
+            cache.removeAllObjects()
+        }
     }
 
     public func removeImageWithURL(_ url: URL) {
         let key = URLImageKey.url(url)
         let keyWrapper = KeyWrapper(key: key)
-        cache.removeObject(forKey: keyWrapper)
+        Task { @URLImageInMemoryStoreActor in
+            cache.removeObject(forKey: keyWrapper)
+        }
     }
 
     public func removeImageWithIdentifier(_ identifier: String) {
         let key = URLImageKey.identifier(identifier)
         let keyWrapper = KeyWrapper(key: key)
-        cache.removeObject(forKey: keyWrapper)
+        Task { @URLImageInMemoryStoreActor in
+            cache.removeObject(forKey: keyWrapper)
+        }
     }
 
-    public func getImage<T>(_ keys: [URLImageKey]) -> T? {
+    public func getImage<T: Sendable>(_ keys: [URLImageKey]) -> T? {
         for key in keys.map({ KeyWrapper(key: $0) }) {
             guard let object = cache.object(forKey: key) else {
                 continue
@@ -84,12 +91,11 @@ extension URLImageInMemoryStore: URLImageInMemoryStoreType {
     }
 
     public func store<T>(_ image: T, info: URLImageStoreInfo) {
-        let imageWrapper = ObjectWrapper(image: image, info: info)
-
         let urlKey = URLImageKey.url(info.url)
         let urlKeyWrapper = KeyWrapper(key: urlKey)
+        let imageWrapper = ObjectWrapper(image: image, info: info)
         cache.setObject(imageWrapper, forKey: urlKeyWrapper)
-
+        
         if let identifier = info.identifier {
             let identifierKey = URLImageKey.identifier(identifier)
             let identifierKeyWrapper = KeyWrapper(key: identifierKey)

@@ -5,7 +5,7 @@
 //  Created by Dmytro Anokhin on 25/08/2020.
 //
 
-@preconcurrency import SwiftUI
+import SwiftUI
 @preconcurrency import Combine
 import Model
 import DownloadManager
@@ -19,9 +19,13 @@ final class RemoteImageWrapper: ObservableObject {
     @Published var remote: RemoteImage?
 }
 
+@globalActor
+public actor RemoteImageActor {
+    public static let shared = RemoteImageActor()
+}
+
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-@MainActor
-public final class RemoteImage : ObservableObject {
+public final class RemoteImage : ObservableObject, Sendable {
 
     /// Reference to URLImageService used to download and store the image.
     unowned let service: URLImageService
@@ -33,14 +37,18 @@ public final class RemoteImage : ObservableObject {
 
     let options: URLImageOptions
     
-    nonisolated(unsafe) var stateCancellable: AnyCancellable?
-    nonisolated(unsafe) var downloadTask: Task<Void, Never>?
+    let debugDate: Date
+    
+    @RemoteImageActor var stateCancellable: AnyCancellable?
+    @RemoteImageActor var updatedTask: Task<Void, Never>?
 
     init(service: URLImageService, download: Download, identifier: String?, options: URLImageOptions) {
         self.service = service
         self.download = download
         self.identifier = identifier
         self.options = options
+        self.debugDate = Date()
+        
         stateBind()
 
         log_debug(nil, #function, download.url.absoluteString)
@@ -48,41 +56,32 @@ public final class RemoteImage : ObservableObject {
     }
     
     private func stateBind() {
-        self.stateCancellable = loadingStatePublisher
-            .receive(on: DispatchQueue.main)
+        let cancellable = loadingStatePublisher
             .sink(receiveValue: { [weak self] state in
-                self?.slowLoadingState.send(state)
+                self?.notifyState(state)
             })
+        
+        Task { @RemoteImageActor in
+            stateCancellable = cancellable
+        }
     }
 
     deinit {
-//        stateCancellable?.cancel()
-//        downloadTask?.cancel()
+        stateCancellable?.cancel()
+        updatedTask?.cancel()
         log_debug(nil, #function, download.url.absoluteString, detail: log_detailed)
     }
 
     public typealias LoadingState = RemoteImageLoadingState
 
     /// External loading state used to update the view
-//    @Published public private(set) var loadingState: LoadingState = .initial {
-//        willSet {
-//            log_debug(self, #function, "\(download.url) will transition from \(loadingState) to \(newValue)", detail: log_detailed)
-//        }
-//    }
-    
     let loadingState = CurrentValueSubject<LoadingState, Never>(.initial)
     let slowLoadingState = CurrentValueSubject<LoadingState, Never>(.initial)
-//    @Published public private(set) var slowLoadingState: LoadingState = .initial
-//    nonisolated(unsafe) public var slowLoadingState: AnyPublisher<LoadingState, Never> {
-//        loadingState
-//            .prepend(.initial)
-//            .eraseToAnyPublisher()
-//    }
     
     private var progressStatePublisher: AnyPublisher<RemoteImageLoadingState, Never> {
         loadingState
             .filter({ $0.isInProgress })
-            .collect(.byTime(DispatchQueue.main, .milliseconds(100)))
+            .collect(.byTime(queue, .milliseconds(100)))
             .compactMap(\.last)
             .eraseToAnyPublisher()
     }
@@ -100,80 +99,18 @@ public final class RemoteImage : ObservableObject {
                 next.isInProgress && current.isComplete ? current:next
             })
             .removeDuplicates()
+            .receive(on: DispatchQueue(label: "com.image.\(download.id)"))
             .eraseToAnyPublisher()
     }
-
-//    public func load() {
-//        guard !isLoading else {
-//            return
-//        }
-//        
-//        log_debug(self, #function, "Start load for: \(download.url)", detail: log_normal)
-//        
-//        isLoading = true
-//        
-//        switch options.fetchPolicy {
-//        case .returnStoreElseLoad(let downloadDelay):
-//            guard !isLoadedSuccessfully else {
-//                // Already loaded
-//                isLoading = false
-//                return
-//            }
-//            
-//            guard !loadFromInMemoryStore() else {
-//                // Loaded from the in-memory store
-//                isLoading = false
-//                return
-//            }
-//            
-//            // Disk lookup
-//            //                scheduleReturnStored(afterDelay: nil) { [weak self] success in
-//            //                    guard let self = self else { return }
-//            //
-//            //                    if !success {
-//            //                        self.scheduleDownload(afterDelay: downloadDelay, secondStoreLookup: true)
-//            //                    }
-//            //                }
-//            Task {
-//                let success = await scheduleReturnStored(afterDelay: nil)
-//                if !success {
-//                    self.scheduleDownload(afterDelay: downloadDelay, secondStoreLookup: true)
-//                }
-//            }
-//            
-//        case .returnStoreDontLoad:
-//            guard !isLoadedSuccessfully else {
-//                // Already loaded
-//                isLoading = false
-//                return
-//            }
-//            
-//            guard !loadFromInMemoryStore() else {
-//                // Loaded from the in-memory store
-//                isLoading = false
-//                return
-//            }
-//            
-//            // Disk lookup
-//            //                scheduleReturnStored(afterDelay: nil) { [weak self] success in
-//            //                    guard let self = self else { return }
-//            //
-//            //                    if !success {
-//            //                        // Complete
-//            //                        self.loadingState = .initial
-//            //                        self.isLoading = false
-//            //                    }
-//            //                }
-//            Task {
-//                let success = await scheduleReturnStored(afterDelay: nil)
-//                if !success {
-//                    await updateLoadingState(.initial)
-//                    await updateIsLoading(false)
-//                }
-//            }
-//        }
-//    }
-    public func load() async {
+    
+    public func load() {
+        Task { @RemoteImageActor in
+            await self.queueLoad()
+        }
+    }
+    
+    @RemoteImageActor
+    private func queueLoad() async {
         guard !isLoading else {
             return
         }
@@ -190,7 +127,7 @@ public final class RemoteImage : ObservableObject {
                 return
             }
             
-            guard !loadFromInMemoryStore() else {
+            guard await !loadFromInMemoryStore() else {
                 // Loaded from the in-memory store
                 updateIsLoading(false)
                 return
@@ -198,7 +135,7 @@ public final class RemoteImage : ObservableObject {
             
             let success = await scheduleReturnStored(afterDelay: nil)
             if !success {
-                await self.scheduleDownload(afterDelay: downloadDelay, secondStoreLookup: true)
+                self.scheduleDownload(afterDelay: downloadDelay, secondStoreLookup: true)
             }
         case .returnStoreDontLoad:
             guard !isLoadedSuccessfully else {
@@ -207,7 +144,7 @@ public final class RemoteImage : ObservableObject {
                 return
             }
             
-            guard !loadFromInMemoryStore() else {
+            guard await !loadFromInMemoryStore() else {
                 // Loaded from the in-memory store
                 updateIsLoading(false)
                 return
@@ -222,6 +159,20 @@ public final class RemoteImage : ObservableObject {
     }
 
     public func cancel() {
+        Task { @RemoteImageActor in
+            self.queueCancel()
+        }
+    }
+    
+    public func onDissAppear() {
+        Task { @RemoteImageActor [weak self] in
+            self?.updatedTask?.cancel()
+            self?.isLoading = false
+        }
+    }
+    
+    @RemoteImageActor
+    private func queueCancel() {
         guard isLoading else {
             return
         }
@@ -229,30 +180,18 @@ public final class RemoteImage : ObservableObject {
         log_debug(self, #function, "Cancel load for: \(download.url)", detail: log_normal)
 
         isLoading = false
-
-        // Cancel publishers
-        for cancellable in cancellables {
-            cancellable.cancel()
+    }
+    
+    private func notifyState(_ state: LoadingState) {
+        let slowLoadingState = self.slowLoadingState
+        let id = download.id
+        Task { @MainActor in
+            slowLoadingState.send(state)
         }
-
-        cancellables.removeAll()
-
-        delayedReturnStored?.cancel()
-        delayedReturnStored = nil
-
-        delayedDownload?.cancel()
-        delayedDownload = nil
-        
-//        downloadTask?.cancel()
-        downloadTask?.cancel()
-        downloadTask = nil
     }
 
     /// Internal loading state
-    private var isLoading: Bool = false
-    private var cancellables = Set<AnyCancellable>()
-    private var delayedReturnStored: DispatchWorkItem?
-    private var delayedDownload: DispatchWorkItem?
+    @RemoteImageActor private var isLoading: Bool = false
 }
 
 
@@ -271,31 +210,13 @@ extension RemoteImage {
     /// Rerturn an image from the in memory store.
     ///
     /// Sets `loadingState` to `.success` if an image is in the in-memory store and returns `true`. Otherwise returns `false` without changing the state.
-//    private func loadFromInMemoryStore() -> Bool {
-//        guard let store = service.inMemoryStore else {
-//            log_debug(self, #function, "Not using in memory store for \(download.url)", detail: log_normal)
-//            return false
-//        }
-//
-//        guard let transientImage: TransientImage = store.getImage(keys) else {
-//            log_debug(self, #function, "Image for \(download.url) not in the in memory store", detail: log_normal)
-//            return false
-//        }
-//
-//        // Complete
-//        self.loadingState = .success(transientImage)
-//        log_debug(self, #function, "Image for \(download.url) is in the in memory store", detail: log_normal)
-//
-//        return true
-//    }
-    
-    private func loadFromInMemoryStore() -> Bool {
+    private func loadFromInMemoryStore() async -> Bool {
         guard let store = service.inMemoryStore else {
             log_debug(self, #function, "Not using in memory store for \(download.url)", detail: log_normal)
             return false
         }
 
-        guard let transientImage: TransientImage = store.getImage(keys) else {
+        guard let transientImage: TransientImage = await store.getImage(keys) else {
             log_debug(self, #function, "Image for \(download.url) not in the in memory store", detail: log_normal)
             return false
         }
@@ -306,22 +227,6 @@ extension RemoteImage {
 
         return true
     }
-
-//    private func scheduleReturnStored(afterDelay delay: TimeInterval?, completion: @escaping (_ success: Bool) -> Void) {
-//        guard let delay = delay else {
-//            // Read from store immediately if no delay needed
-//            returnStored(completion)
-//            return
-//        }
-//
-//        delayedReturnStored?.cancel()
-//        delayedReturnStored = DispatchWorkItem { [weak self] in
-//            guard let self = self else { return }
-//            self.returnStored(completion)
-//        }
-//
-//        queue.asyncAfter(deadline: .now() + delay, execute: delayedReturnStored!)
-//    }
     
     private func scheduleReturnStored(afterDelay delay: TimeInterval?) async -> Bool {
         guard let delay = delay else {
@@ -340,99 +245,40 @@ extension RemoteImage {
     }
 
     // Second store lookup is necessary for a case if the same image was downloaded by another instance of RemoteImage
-//    private func scheduleDownload(afterDelay delay: TimeInterval? = nil, secondStoreLookup: Bool = false) {
-//        guard let delay = delay else {
-//            // Start download immediately if no delay needed
-//            startDownload()
-//            return
-//        }
-//
-//        delayedDownload?.cancel()
-//        delayedDownload = DispatchWorkItem { [weak self] in
-//            guard let self = self else { return }
-//
-//            if secondStoreLookup {
-//                self.returnStored { [weak self] success in
-//                    guard let self = self else { return }
-//
-//                    if !success {
-//                        self.startDownload()
-//                    }
-//                }
-//            }
-//            else {
-//                self.startDownload()
-//            }
-//        }
-//
-//        queue.asyncAfter(deadline: .now() + delay, execute: delayedDownload!)
-//    }
-    
     private func scheduleDownload(afterDelay delay: TimeInterval? = nil, secondStoreLookup: Bool = false) {
         guard let _ = delay else {
             // Start download immediately if no delay needed
-            Task {
-                await startDownload()
-            }
+            startAndUpdateDownload()
             return
         }
         
         if secondStoreLookup {
-            Task {
-                let success = await returnStored()
-                if !success {
-                    await startDownload()
+            Task { [weak self] in
+                let success = await self?.returnStored() ?? false
+                if !success, let self {
+                    let task = Task { [weak self] in
+                        await self?.startDownload()
+                        return
+                    }
+                    await self.updateUpdatedTask(task)
                 }
             }
         } else {
-            Task {
-                await startDownload()
-            }
+            startAndUpdateDownload()
         }
     }
-
-//    private func startDownload() {
-//        loadingState = .inProgress(nil)
-//
-//        service.downloadManager.publisher(for: download)
-//            .sink { [weak self] result in
-//                guard let self = self else {
-//                    return
-//                }
-//
-//                switch result {
-//                    case .finished:
-//                        break
-//
-//                    case .failure(let error):
-//                        // This route happens when download fails
-//                        self.updateLoadingState(.failure(error))
-//                }
-//            }
-//            receiveValue: { [weak self] info in
-//                guard let self = self else {
-//                    return
-//                }
-//
-//                switch info {
-//                    case .progress(let progress):
-//                        self.updateLoadingState(.inProgress(progress))
-//                    case .completion(let result):
-//                        do {
-//                            let transientImage = try self.service.decode(result: result,
-//                                                                         download: self.download,
-//                                                                         identifier: self.identifier,
-//                                                                         options: self.options)
-//                            self.updateLoadingState(.success(transientImage))
-//                        }
-//                        catch {
-//                            // This route happens when download succeeds, but decoding fails
-//                            self.updateLoadingState(.failure(error))
-//                        }
-//                }
-//            }
-//            .store(in: &cancellables)
-//    }
+    
+    private func startAndUpdateDownload() {
+        let task = Task { [weak self] in
+            await self?.startDownload()
+            return
+        }
+        
+        Task { [weak self] in
+            await self?.updateUpdatedTask(task)
+        }
+    }
+    
     private func startDownload() async {
         updateLoadingState(.inProgress(nil))
         
@@ -449,10 +295,14 @@ extension RemoteImage {
                     updateLoadingState(.inProgress(progress))
                 case .completion(let result):
                     do {
-                        let transientImage = try await service.decode(result: result,
-                                                                      download: download,
-                                                                      identifier: identifier,
-                                                                      options: options)
+                        let transientImage = try await Task {
+                            try await service.decode(
+                                result: result,
+                                download: download,
+                                identifier: identifier,
+                                options: options
+                            )
+                        }.value
                         updateLoadingState(.success(transientImage))
                     } catch {
                         // This route happens when download succeeds, but decoding fails
@@ -460,51 +310,11 @@ extension RemoteImage {
                     }
                 }
             case .failure(let error):
+                print("bad update")
                 updateLoadingState(.failure(error))
             }
         }
     }
-
-//    private func returnStored(_ completion: @escaping (_ success: Bool) -> Void) {
-//        Task { @MainActor in
-//            loadingState = .inProgress(nil)
-//        }
-//
-//        guard let store = service.fileStore else {
-//            completion(false)
-//            return
-//        }
-//
-//        store.getImagePublisher(keys, maxPixelSize: options.maxPixelSize)
-//            .receive(on: DispatchQueue.main)
-//            .catch { _ in
-//                Just(nil)
-//            }
-//            .sink { [weak self] in
-//                guard let self = self else {
-//                    return
-//                }
-//
-//                if let transientImage = $0 {
-//                    log_debug(self, #function, "Image for \(self.download.url) is in the disk store", detail: log_normal)
-//                    // Store in memory
-//                    let info = URLImageStoreInfo(url: self.download.url,
-//                                                 identifier: self.identifier,
-//                                                 uti: transientImage.uti)
-//
-//                    self.service.inMemoryStore?.store(transientImage, info: info)
-//
-//                    // Complete
-//                    self.loadingState = .success(transientImage)
-//                    completion(true)
-//                }
-//                else {
-//                    log_debug(self, #function, "Image for \(self.download.url) not in the disk store", detail: log_normal)
-//                    completion(false)
-//                }
-//            }
-//            .store(in: &cancellables)
-//    }
     
     private func returnStored() async -> Bool {
         loadingState.send(.inProgress(nil))
@@ -523,7 +333,7 @@ extension RemoteImage {
         // Store in memory
         let info = URLImageStoreInfo(url: download.url, identifier: identifier, uti: transientImage.uti)
 
-        service.inMemoryStore?.store(transientImage, info: info)
+        await service.inMemoryStore?.store(transientImage, info: info)
 
         // Complete
         loadingState.send(.success(transientImage))
@@ -534,8 +344,15 @@ extension RemoteImage {
         self.loadingState.send(loadingState)
     }
     
+    @RemoteImageActor
     private func updateIsLoading(_ loading: Bool) {
         self.isLoading = loading
+    }
+    
+    @RemoteImageActor
+    private func updateUpdatedTask(_ task: Task<Void, Never>) {
+        self.updatedTask?.cancel()
+        self.updatedTask = task
     }
 
     /// Helper to return `URLImageStoreKey` objects based on `URLImageOptions` and `Download` properties

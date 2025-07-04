@@ -82,6 +82,10 @@ public final class ImageDecoder: Sendable {
     }
 
     public convenience init?(url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print("file url not exsist \(url)")
+            return nil
+        }
         guard let dataProvider = CGDataProvider(url: url as CFURL) else {
             return nil
         }

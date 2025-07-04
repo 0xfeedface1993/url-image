@@ -10,13 +10,19 @@ import ImageIO
 import ImageDecoder
 import DownloadManager
 
+@globalActor
+public actor URLImageInMemoryStoreActor {
+    public static let shared = URLImageInMemoryStoreActor()
+}
 
 /// Temporary representation used after decoding an image from data or file on disk and before creating an image object for display.
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public struct TransientImage: Sendable {
 
-    @MainActor public var cgImage: CGImage {
-        proxy.cgImage
+    public var cgImage: CGImage {
+        get async {
+            await proxy.cgImage
+        }
     }
 
     public let info: ImageInfo
@@ -40,6 +46,11 @@ public struct TransientImage: Sendable {
     public let proxy: CGImageProxy
 }
 
+@globalActor
+actor CGImageProxyActor {
+    static let shared = CGImageProxyActor()
+}
+
 /// Proxy used to decode image lazily
 @available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
 public final class CGImageProxy: Sendable {
@@ -53,6 +64,7 @@ public final class CGImageProxy: Sendable {
         self.maxPixelSize = maxPixelSize
     }
 
+    @CGImageProxyActor
     var cgImage: CGImage {
         if decodedCGImage == nil {
             decodeImage()
@@ -61,8 +73,10 @@ public final class CGImageProxy: Sendable {
         return decodedCGImage!
     }
     
-    nonisolated(unsafe) private var decodedCGImage: CGImage?
+    @CGImageProxyActor
+    private var decodedCGImage: CGImage?
 
+    @CGImageProxyActor
     private func decodeImage() {
         if let sizeForDrawing = maxPixelSize {
             let decodingOptions = ImageDecoder.DecodingOptions(mode: .asynchronous, sizeForDrawing: sizeForDrawing)
