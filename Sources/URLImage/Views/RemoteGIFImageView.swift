@@ -140,7 +140,7 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
     
     private func loadMemoryStore(_ maxPixelSize: CGSize?) async -> PlatformImage? {
         guard let memoryStore = urlImageService.inMemoryStore else {
-            print("memory store missing")
+//            print("memory store missing")
             return nil
         }
         

@@ -169,12 +169,12 @@ actor PublishersHolder {
         if let current = publishers[download.url] {
             publisher = current
             newTask = false
-            print("use exists task for \(download.url)")
+//            print("use exists task for \(download.url)")
         } else {
             publisher = DownloadAsyncTask(download: download, coordinator: coordinator)
             publishers[download.url] = publisher
             newTask = true
-            print("create new publisher for \(download.url)")
+//            print("create new publisher for \(download.url)")
         }
         let id = UUID()
         let (stream, continuation) = Stream.makeStream(bufferingPolicy: .bufferingNewest(1))
