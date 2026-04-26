@@ -7,6 +7,12 @@
 
 import SwiftUI
 import Model
+#if os(macOS)
+import os
+
+@available(macOS 11.0, *)
+private let remoteGIFLogger = Logger(subsystem: "com.groovy.ca", category: "GIFPlayback")
+#endif
 
 @available(macOS 12.0, iOS 15.0, tvOS 14.0, watchOS 7.0, *)
 struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empty : View,
@@ -18,6 +24,7 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
     @Environment(\.urlImageOptions) var options
     @State private var source: GIFImageSource?
     @State var animateState: RemoteImageLoadingState = .initial
+    let playbackMode: GIFPlaybackMode
 
     let loadOptions: URLImageOptions.LoadOptions
 
@@ -28,6 +35,7 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
 
     init(remoteImage: RemoteImage,
          loadOptions: URLImageOptions.LoadOptions,
+         playbackMode: GIFPlaybackMode,
          @ViewBuilder empty: @escaping () -> Empty,
          @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
          @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
@@ -35,6 +43,7 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
 
         self.remoteImage = remoteImage
         self.loadOptions = loadOptions
+        self.playbackMode = playbackMode
 
         self.empty = empty
         self.inProgress = inProgress
@@ -55,16 +64,20 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
             case .inProgress(let progress):
                 inProgress(progress)
                 
-            case .success(let transientImage):
+            case .success:
                 if let source = source {
                     switch source {
                     case .image(let image):
                         content(
-                            GIFImageView(image: image)
+                            GIFImageView(image: image,
+                                         playbackMode: playbackMode,
+                                         preferredMaxPixelSize: options.maxPixelSize)
                         )
                     case .file(let fileURL):
                         content(
-                            GIFImageView(url: fileURL)
+                            GIFImageView(url: fileURL,
+                                         playbackMode: playbackMode,
+                                         preferredMaxPixelSize: options.maxPixelSize)
                         )
                         .disabled(true)
                     }
@@ -78,18 +91,19 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
             }
         }
         .onAppear {
-            if loadOptions.contains(.loadOnAppear), !remoteImage.slowLoadingState.value.isSuccess {
+            if (loadOptions.contains(.loadOnAppear) || loadOptions.contains(.loadImmediately)),
+               !remoteImage.slowLoadingState.value.isSuccess {
                 remoteImage.load()
             }
             Task {
-                await prepare(self.animateState)
+                await prepare(remoteImage.slowLoadingState.value)
             }
         }
         .onDisappear {
             if loadOptions.contains(.cancelOnDisappear) {
                 remoteImage.cancel()
             }
-//            image = nil
+            remoteImage.onDissAppear()
         }
         .onReceive(remoteImage.slowLoadingState) { newValue in
             Task {
@@ -100,13 +114,29 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
     }
     
     private func prepare(_ state: RemoteImage.LoadingState) async {
-        if case .success(_) = state {
-            if let image = await loadMemoryStore(options.maxPixelSize) {
-                self.source = .image(image)
-                return
-            }
-            await load(options.maxPixelSize)
+        guard case .success(_) = state else {
+            return
         }
+
+        if source != nil {
+            return
+        }
+
+#if os(macOS)
+        if urlImageService.fileStore != nil {
+            await load(options.maxPixelSize)
+            return
+        }
+#endif
+
+        if let image = await loadMemoryStore(options.maxPixelSize) {
+            await MainActor.run {
+                source = .image(image)
+            }
+            return
+        }
+
+        await load(options.maxPixelSize)
     }
     
     private func load(_ maxPixelSize: CGSize?) async {
@@ -117,21 +147,27 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
         
 #if os(macOS)
         do {
-            let value = try await fileStore.getImageLocation(remoteImage.download.url)
-            guard let value, let fileURL = try await fileStore.getImageLocation(remoteImage.download.url) else {
+            guard let fileURL = try await fileStore.getImageLocation(fileKeys) else {
                 return
             }
-            source = .file(fileURL)
+            await MainActor.run {
+#if DEBUG
+                remoteGIFLogger.debug("gif source file remote=\(self.remoteImage.download.url.absoluteString, privacy: .public) local=\(fileURL.lastPathComponent, privacy: .public) mode=\(String(describing: self.playbackMode), privacy: .public) maxPixel=\(String(describing: maxPixelSize), privacy: .public)")
+#endif
+                source = .file(fileURL)
+            }
         } catch {
             print("retrive image with \(remoteImage.download.url) failed. \(error)")
         }
 #else
         do {
             let value = try await fileStore.getImage([.url(remoteImage.download.url)], maxPixelSize: maxPixelSize)
-            guard let value, let data = await gif(value, maxSize: options.maxPixelSize) else {
+            guard let value, let data = await gif(value, maxSize: maxPixelSize) else {
                 return
             }
-            source = .image(data)
+            await MainActor.run {
+                source = .image(data)
+            }
         } catch {
             print("retrive image with \(remoteImage.download.url) failed. \(error)")
         }
@@ -140,16 +176,30 @@ struct RemoteGIFImageView<Empty, InProgress, Failure, Content> : View where Empt
     
     private func loadMemoryStore(_ maxPixelSize: CGSize?) async -> PlatformImage? {
         guard let memoryStore = urlImageService.inMemoryStore else {
-            print("memory store missing")
             return nil
         }
         
-        guard let value: TransientImage = await memoryStore.getImage([.url(remoteImage.download.url)]) else {
-            print("\(remoteImage.download.url) not cached in memory store")
+        guard let value: TransientImage = await memoryStore.getImage(memoryKeys) else {
             return nil
         }
         
-        return await gif(value, maxSize: options.maxPixelSize)
+        return await gif(value, maxSize: maxPixelSize)
+    }
+
+    private var memoryKeys: [URLImageKey] {
+        if let identifier = remoteImage.identifier {
+            return [.identifier(identifier)]
+        }
+
+        return [.url(remoteImage.download.url)]
+    }
+
+    private var fileKeys: [URLImageKey] {
+        if let identifier = remoteImage.identifier {
+            return [.identifier(identifier), .url(remoteImage.download.url)]
+        }
+
+        return [.url(remoteImage.download.url)]
     }
 }
 

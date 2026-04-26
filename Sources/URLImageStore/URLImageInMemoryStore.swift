@@ -50,7 +50,31 @@ public final class URLImageInMemoryStore: Sendable {
     }
 
     @URLImageInMemoryStoreActor
-    private let cache = NSCache<KeyWrapper, ObjectWrapper>()
+    private let cache: NSCache<KeyWrapper, ObjectWrapper> = {
+        let cache = NSCache<KeyWrapper, ObjectWrapper>()
+        cache.countLimit = 160
+#if os(macOS)
+        cache.totalCostLimit = 64 * 1024 * 1024
+#else
+        cache.totalCostLimit = 96 * 1024 * 1024
+#endif
+        return cache
+    }()
+
+    private static func cacheCost(for image: Any) -> Int {
+        guard #available(macOS 11.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *) else {
+            return 0
+        }
+
+        guard let transientImage = image as? TransientImage else {
+            return 0
+        }
+
+        let pixelSize = transientImage.proxy.maxPixelSize ?? transientImage.info.size
+        let width = max(Int(pixelSize.width.rounded(.up)), 1)
+        let height = max(Int(pixelSize.height.rounded(.up)), 1)
+        return width * height * 4
+    }
 }
 
 
@@ -94,7 +118,8 @@ extension URLImageInMemoryStore: URLImageInMemoryStoreType {
         let urlKey = URLImageKey.url(info.url)
         let urlKeyWrapper = KeyWrapper(key: urlKey)
         let imageWrapper = ObjectWrapper(image: image, info: info)
-        cache.setObject(imageWrapper, forKey: urlKeyWrapper)
+        let cost = Self.cacheCost(for: image)
+        cache.setObject(imageWrapper, forKey: urlKeyWrapper, cost: cost)
         
         if let identifier = info.identifier {
             let identifierKey = URLImageKey.identifier(identifier)

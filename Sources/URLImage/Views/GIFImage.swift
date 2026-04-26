@@ -14,7 +14,6 @@ public typealias PlatformViewRepresentable = UIViewRepresentable
 public typealias PlatformImage = UIImage
 public typealias PlatformImageView = UIImageView
 #elseif os(macOS)
-import Quartz
 public typealias PlatformView = NSView
 public typealias PlatformImage = NSImage
 public typealias PlatformImageView = NSImageView
@@ -24,6 +23,11 @@ public typealias PlatformViewRepresentable = NSViewRepresentable
 public enum GIFImageSource {
     case image(PlatformImage)
     case file(URL)
+}
+
+public enum GIFPlaybackMode: Sendable {
+    case poster
+    case animated
 }
 
 @available(macOS 12.0, iOS 15.0, *)
@@ -36,6 +40,7 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
     
     var url: URL
     private let identifier: String?
+    private let playbackMode: GIFPlaybackMode
     
     private let empty: () -> Empty
     private let inProgress: (_ progress: Float?) -> InProgress
@@ -44,6 +49,7 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
     
     public init(_ url: URL,
                 identifier: String? = nil,
+                playbackMode: GIFPlaybackMode = .animated,
                  @ViewBuilder empty: @escaping () -> Empty,
                  @ViewBuilder inProgress: @escaping (_ progress: Float?) -> InProgress,
                  @ViewBuilder failure: @escaping (_ error: Error, _ retry: @escaping () -> Void) -> Failure,
@@ -51,6 +57,7 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
         
         self.url = url
         self.identifier = identifier
+        self.playbackMode = playbackMode
         self.empty = empty
         self.inProgress = inProgress
         self.failure = failure
@@ -61,6 +68,7 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
         InstalledRemoteView(service: urlImageService, url: url, identifier: identifier, options: options) { remoteImage in
             RemoteGIFImageView(remoteImage: remoteImage,
                                loadOptions: options.loadOptions,
+                               playbackMode: playbackMode,
                                empty: empty,
                                inProgress: inProgress,
                                failure: failure,
@@ -72,28 +80,34 @@ public struct GIFImage<Empty, InProgress, Failure, Content> : View where Empty :
 @available(macOS 11.0, iOS 14.0, *)
 public struct GIFImageView: View {
     var source: GIFImageSource
+    var playbackMode: GIFPlaybackMode
+    var preferredMaxPixelSize: CGSize?
     @Environment(\.imageConfigures) var imageConfigures
     
-    init(image: PlatformImage) {
+    init(image: PlatformImage, playbackMode: GIFPlaybackMode = .animated, preferredMaxPixelSize: CGSize? = nil) {
         self.source = .image(image)
+        self.playbackMode = playbackMode
+        self.preferredMaxPixelSize = preferredMaxPixelSize
     }
     
-    init(url: URL) {
+    init(url: URL, playbackMode: GIFPlaybackMode = .animated, preferredMaxPixelSize: CGSize? = nil) {
         self.source = .file(url)
+        self.playbackMode = playbackMode
+        self.preferredMaxPixelSize = preferredMaxPixelSize
     }
     
     public var body: some View {
         if imageConfigures.resizeble, let aspectRatio = imageConfigures.aspectRatio {
-            GIFRepresentView(source: source)
+            GIFRepresentView(source: source, playbackMode: playbackMode, preferredMaxPixelSize: preferredMaxPixelSize)
                 .aspectRatio(aspectRatio, contentMode: imageConfigures.contentMode == .fit ? .fit:.fill)
         }   else    {
-            GIFRepresentView(source: source)
+            GIFRepresentView(source: source, playbackMode: playbackMode, preferredMaxPixelSize: preferredMaxPixelSize)
         }
     }
 }
 
 public extension View {
-    func aspectResizeble(ratio: CGFloat, contentMode: ContentMode = .fit) -> some View {
+    func aspectResizeble(ratio: CGFloat, contentMode: GIFContentMode = .fit) -> some View {
         self.environment(\.imageConfigures, ImageConfigures(aspectRatio: ratio, contentMode: contentMode, resizeble: true))
     }
 }
@@ -101,86 +115,122 @@ public extension View {
 @available(macOS 11.0, iOS 14.0, *)
 struct GIFRepresentView: PlatformViewRepresentable {
     var source: GIFImageSource
+    var playbackMode: GIFPlaybackMode
+    var preferredMaxPixelSize: CGSize?
     @Environment(\.imageConfigures) var imageConfigures
     
 #if os(iOS) || os(watchOS)
     public func makeUIView(context: Context) -> PlatformView {
-        switch source {
-        case .image(let image):
-            return UIGIFImage(source: image)
-        case .file(let url):
-            return PlatformView()
-        }
+        let view = UIGIFImage()
+        view.update(source: source, contentMode: imageConfigures.contentMode, playbackMode: playbackMode)
+        return view
     }
     
     public func updateUIView(_ uiView: PlatformView, context: Context) {
-        
+        (uiView as? UIGIFImage)?.update(source: source, contentMode: imageConfigures.contentMode, playbackMode: playbackMode)
     }
 #elseif os(macOS)
     public func makeNSView(context: Context) -> PlatformView {
-        switch source {
-        case .image(let image):
-            return UIGIFImage(source: image)
-        case .file(let url):
-            guard let preview = QLPreviewView(frame: .zero, style: .normal) else {
-                return QLPreviewView()
-            }
-            preview.shouldCloseWithWindow = false
-            preview.autostarts = true
-            preview.previewItem = url as QLPreviewItem
-            preview.refreshPreviewItem()
-            return preview
-        }
+        let view = MacAnimatedGIFView()
+        view.update(source: source,
+                    contentMode: imageConfigures.contentMode,
+                    playbackMode: playbackMode,
+                    preferredMaxPixelSize: preferredMaxPixelSize)
+        return view
     }
     
     public func updateNSView(_ nsView: PlatformView, context: Context) {
-        
+        (nsView as? MacAnimatedGIFView)?.update(source: source,
+                                                contentMode: imageConfigures.contentMode,
+                                                playbackMode: playbackMode,
+                                                preferredMaxPixelSize: preferredMaxPixelSize)
+    }
+
+    public static func dismantleNSView(_ nsView: PlatformView, coordinator: ()) {
+        (nsView as? MacAnimatedGIFView)?.reset()
     }
 #endif
 }
 
 public final class UIGIFImage: PlatformView {
     let imageView = PlatformImageView()
-    var source: PlatformImage?
-    var imageConfigures: ImageConfigures?
+    private var source: GIFImageSource?
+    private var playbackMode: GIFPlaybackMode = .animated
+    private var imageConfigures: ImageConfigures?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
+        initView()
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
-    convenience init(source: PlatformImage) {
-        self.init()
-        self.source = source
-        initView()
-    }
-    
 #if os(iOS) || os(watchOS)
     public override func layoutSubviews() {
         super.layoutSubviews()
         imageView.frame = bounds
-        addSubview(imageView)
+        if imageView.superview == nil {
+            addSubview(imageView)
+        }
     }
 #elseif os(macOS)
     public override func layout() {
         super.layout()
         imageView.frame = bounds
-        addSubview(imageView)
+        if imageView.superview == nil {
+            addSubview(imageView)
+        }
     }
 #endif
     
     private func initView() {
 #if os(iOS) || os(watchOS)
-        imageView.contentMode = imageConfigures?.contentMode == .fit ? .scaleAspectFit:.scaleAspectFill
-        imageView.image = source
+        imageView.contentMode = .scaleAspectFit
 #elseif os(macOS)
-        imageView.imageScaling = imageConfigures?.contentMode == .fit ? .scaleAxesIndependently:.scaleProportionallyUpOrDown
-        imageView.image = source
-        imageView.animates = true
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.animates = false
 #endif
+    }
+
+    func update(source: GIFImageSource, contentMode: GIFContentMode, playbackMode: GIFPlaybackMode) {
+        self.source = source
+        self.playbackMode = playbackMode
+        self.imageConfigures = ImageConfigures(aspectRatio: nil, contentMode: contentMode, resizeble: false)
+#if os(iOS) || os(watchOS)
+        imageView.contentMode = contentMode == .fit ? .scaleAspectFit:.scaleAspectFill
+#elseif os(macOS)
+        imageView.imageScaling = contentMode == .fit ? .scaleAxesIndependently:.scaleProportionallyUpOrDown
+#endif
+        apply()
+    }
+
+    private func apply() {
+        guard let source else {
+            imageView.image = nil
+            return
+        }
+
+        switch source {
+        case .image(let image):
+#if os(iOS) || os(watchOS)
+            imageView.stopAnimating()
+            switch playbackMode {
+            case .animated:
+                imageView.image = image
+                imageView.startAnimating()
+            case .poster:
+                imageView.image = image.images?.first ?? image
+            }
+#elseif os(macOS)
+            imageView.animates = false
+            imageView.image = image
+            imageView.animates = playbackMode == .animated
+#endif
+        case .file:
+            break
+        }
     }
 }
 
@@ -209,14 +259,14 @@ public struct Scenes: Sendable {
 #endif
 }
 
-public enum ContentMode: Sendable {
+public enum GIFContentMode: Sendable {
     case fit
     case fill
 }
 
 struct ImageConfigures: Sendable {
     var aspectRatio: CGFloat?
-    var contentMode: ContentMode
+    var contentMode: GIFContentMode
     var resizeble: Bool
     
     func aspectRatio(_ aspectRatio: CGFloat) -> ImageConfigures {
@@ -225,7 +275,7 @@ struct ImageConfigures: Sendable {
         return configures
     }
 
-    func contentMode(_ contentMode: ContentMode) -> ImageConfigures {
+    func contentMode(_ contentMode: GIFContentMode) -> ImageConfigures {
         var configures = self
         configures.contentMode = contentMode
         return configures

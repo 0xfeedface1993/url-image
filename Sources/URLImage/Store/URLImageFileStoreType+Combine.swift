@@ -28,6 +28,21 @@ extension URLImageFileStoreType {
             }
         }
     }
+
+    public func getImageLocation(_ keys: [URLImageKey]) async throws -> URL? {
+        try await withCheckedThrowingContinuation { continuation in
+            getImage(keys) { location -> URL? in
+                location
+            } completion: { result in
+                switch result {
+                case .success(let url):
+                    continuation.resume(returning: url)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
     
     public func getImageLocation(_ identifier: String) async throws -> URL? {
         try await withCheckedThrowingContinuation { continuation in
