@@ -18,7 +18,10 @@ let package = Package(
             targets: ["URLImage"]),
         .library(
             name: "URLImageStore",
-            targets: ["URLImageStore"])
+            targets: ["URLImageStore"]),
+        .library(
+            name: "URLImageFFmpeg",
+            targets: ["URLImageFFmpeg"])
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -29,7 +32,21 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages which this package depends on.
         .target(
             name: "URLImage",
-            dependencies: [ "DownloadManager", "ImageDecoder", "FileIndex", "Model", "Log" ]),
+            dependencies: [
+                "DownloadManager",
+                "ImageDecoder",
+                "FileIndex",
+                "Model",
+                "Log",
+                .target(name: "URLImageFFmpeg", condition: .when(platforms: [.iOS, .macOS]))
+            ]),
+        .target(
+            name: "URLImageFFmpeg",
+            dependencies: [ "CURLImageFFmpeg" ]),
+        .target(
+            name: "CURLImageFFmpeg",
+            path: "Sources/CURLImageFFmpeg",
+            publicHeadersPath: "include"),
         .target(
             name: "URLImageStore",
             dependencies: [ "URLImage", "FileIndex", "Log" ]),

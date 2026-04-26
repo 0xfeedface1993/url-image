@@ -184,7 +184,6 @@ public final class RemoteImage : ObservableObject, Sendable {
     
     private func notifyState(_ state: LoadingState) {
         let slowLoadingState = self.slowLoadingState
-        let id = download.id
         Task { @MainActor in
             slowLoadingState.send(state)
         }
@@ -216,7 +215,7 @@ extension RemoteImage {
             return false
         }
 
-        guard let transientImage: TransientImage = await store.getImage(keys) else {
+        guard let transientImage: TransientImage = await store.getImage(memoryKeys) else {
             log_debug(self, #function, "Image for \(download.url) not in the in memory store", detail: log_normal)
             return false
         }
@@ -256,11 +255,7 @@ extension RemoteImage {
             Task { [weak self] in
                 let success = await self?.returnStored() ?? false
                 if !success, let self {
-                    let task = Task { [weak self] in
-                        await self?.startDownload()
-                        return
-                    }
-                    await self.updateUpdatedTask(task)
+                    await self.updateUpdatedTask()
                 }
             }
         } else {
@@ -269,13 +264,8 @@ extension RemoteImage {
     }
     
     private func startAndUpdateDownload() {
-        let task = Task { [weak self] in
-            await self?.startDownload()
-            return
-        }
-        
         Task { [weak self] in
-            await self?.updateUpdatedTask(task)
+            await self?.updateUpdatedTask()
         }
     }
     
@@ -333,7 +323,9 @@ extension RemoteImage {
         // Store in memory
         let info = URLImageStoreInfo(url: download.url, identifier: identifier, uti: transientImage.uti)
 
-        await service.inMemoryStore?.store(transientImage, info: info)
+        if URLImageService.shouldStoreInMemory(uti: transientImage.uti) {
+            await service.inMemoryStore?.store(transientImage, info: info)
+        }
 
         // Complete
         loadingState.send(.success(transientImage))
@@ -350,9 +342,11 @@ extension RemoteImage {
     }
     
     @RemoteImageActor
-    private func updateUpdatedTask(_ task: Task<Void, Never>) {
+    private func updateUpdatedTask() {
         self.updatedTask?.cancel()
-        self.updatedTask = task
+        self.updatedTask = Task { [weak self] in
+            await self?.startDownload()
+        }
     }
 
     /// Helper to return `URLImageStoreKey` objects based on `URLImageOptions` and `Download` properties
@@ -367,5 +361,17 @@ extension RemoteImage {
         keys.append(.url(download.url))
 
         return keys
+    }
+
+    private var memoryKeys: [URLImageKey] {
+        Self.memoryLookupKeys(identifier: identifier, url: download.url)
+    }
+
+    nonisolated static func memoryLookupKeys(identifier: String?, url: URL) -> [URLImageKey] {
+        if let identifier {
+            return [.identifier(identifier)]
+        }
+
+        return [.url(url)]
     }
 }

@@ -317,10 +317,12 @@ struct InstalledRemoteView<Content: View>: View {
     private func inital() {
         let image = service.makeRemoteImage(url: url, identifier: identifier, options: options)
         remoteImage.remote = image
-        if options.loadOptions.contains(.loadImmediately) || options.loadOptions.contains(.loadOnAppear) {
+        if Self.shouldStartLoadingDuringInstallation(loadOptions: options.loadOptions) {
             image.load()
         }
     }
+
+    nonisolated static func shouldStartLoadingDuringInstallation(loadOptions: URLImageOptions.LoadOptions) -> Bool {
+        loadOptions.contains(.loadImmediately)
+    }
 }
-
-
